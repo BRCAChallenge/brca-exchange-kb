@@ -35,5 +35,13 @@ DATABASES = {
         'PASSWORD': 'postgres',
         'OPTIONS': {'options': '-c search_path=pipeline'},
     },
+    'test_pipeline': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'HOST': 'localhost',
+        'NAME': 'storage.pg',
+        'USER': 'postgres',
+        'PASSWORD': 'postgres',
+        'OPTIONS': {'options': '-c search_path=test_pipeline'},
+    },
 }
 
