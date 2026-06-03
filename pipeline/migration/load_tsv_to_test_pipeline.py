@@ -1,0 +1,326 @@
+"""
+Load pipeline release TSVs into the test_pipeline schema.
+
+Usage:
+    python load_tsv_to_test_pipeline.py \\
+        --built-tsv  /path/to/built_with_change_types.tsv \\
+        --reports-tsv /path/to/reports_with_change_types.tsv
+
+Pass 1 (built TSV, one row per variant):
+    Populates: variant, genomic_coordinates, variant_enigma,
+               variant_clinvar, variant_lovd, variant_exlovd, variant_gnomad.
+
+Pass 2 (reports TSV, one row per submission):
+    Populates: report_clinvar, report_lovd, report_gnomad.
+
+Requires DJANGO_SETTINGS_MODULE to point to a settings file that defines a
+'test_pipeline' database entry with search_path=test_pipeline.
+"""
+
+import argparse
+import csv
+import json
+import os
+import sys
+
+# Allow running from any working directory
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'website', 'django'))
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'brca.settings')
+
+import django
+django.setup()
+
+from django.db import connections, transaction
+
+DB = 'test_pipeline'
+
+csv.field_size_limit(10 ** 7)
+
+FLUSH_ORDER = [
+    'report_gnomad', 'variant_gnomad',
+    'variant_exlovd',
+    'report_lovd', 'variant_lovd',
+    'report_clinvar', 'variant_clinvar',
+    'variant_enigma',
+    'genomic_coordinates',
+    'variant',
+]
+
+
+def f(row, col, default='-'):
+    val = row.get(col, '')
+    return val if val else default
+
+
+def nullable(row, col):
+    val = row.get(col, '')
+    return val if val and val != '-' else None
+
+
+def ucsc(chrom, pos):
+    c = chrom if chrom.startswith('chr') else f'chr{chrom}'
+    return f'https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position={c}:{pos}-{pos}'
+
+
+def flush():
+    print('Flushing test_pipeline tables ...')
+    with connections[DB].cursor() as cur:
+        for table in FLUSH_ORDER:
+            cur.execute(f'TRUNCATE TABLE "{table}" CASCADE')
+
+
+def load_variant_row(row, digest, counts):
+    sources = {s.strip() for s in row['Source'].split(',')}
+
+    with connections[DB].cursor() as cur:
+        cur.execute(
+            '''INSERT INTO variant
+                   ("VRS_Digest","Gene_Symbol","Reference_Sequence","HGVS_cDNA",
+                    "BIC_Nomenclature","HGVS_Protein","Protein_Change",
+                    "CA_ID","VRS","Synonyms")
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NULL,%s)
+               ON CONFLICT ("VRS_Digest") DO NOTHING''',
+            [digest,
+             f(row, 'Gene_Symbol'), f(row, 'Reference_Sequence'), f(row, 'HGVS_cDNA'),
+             f(row, 'BIC_Nomenclature'), f(row, 'HGVS_Protein'), f(row, 'Protein_Change'),
+             nullable(row, 'CA_ID'), f(row, 'Synonyms')],
+        )
+    counts['variant'] += 1
+
+    with connections[DB].cursor() as cur:
+        cur.execute(
+            '''INSERT INTO genomic_coordinates
+                   ("VRS_Digest_id", assembly, hgvs, genome_browser_url, chr, pos, ref, alt)
+               VALUES (%s,'GRCh38',%s,%s,%s,%s,%s,%s)''',
+            [digest, f(row, 'Genomic_HGVS_38'),
+             ucsc(row['Chr'], row['Pos']),
+             row['Chr'], row['Pos'], row['Ref'], row['Alt']],
+        )
+    counts['genomic_coordinates'] += 1
+
+    if 'ENIGMA' in sources:
+        with connections[DB].cursor() as cur:
+            cur.execute(
+                '''INSERT INTO variant_enigma
+                       ("VRS_Digest_id","Condition_ID_type","Condition_ID_value",
+                        "Condition_category","Clinical_significance",
+                        "Date_last_evaluated","Assertion_method",
+                        "Assertion_method_citation","Clinical_significance_citations",
+                        "Comment_on_clinical_significance","Collection_method",
+                        "Allele_origin","ClinVarAccession","Pathogenicity")
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                [digest,
+                 f(row, 'Condition_ID_type_ENIGMA'), f(row, 'Condition_ID_value_ENIGMA'),
+                 f(row, 'Condition_category_ENIGMA'), f(row, 'Clinical_significance_ENIGMA'),
+                 f(row, 'Date_last_evaluated_ENIGMA'), f(row, 'Assertion_method_ENIGMA'),
+                 f(row, 'Assertion_method_citation_ENIGMA'),
+                 f(row, 'Clinical_significance_citations_ENIGMA'),
+                 f(row, 'Comment_on_clinical_significance_ENIGMA'),
+                 f(row, 'Collection_method_ENIGMA'), f(row, 'Allele_origin_ENIGMA'),
+                 f(row, 'ClinVarAccession_ENIGMA'), f(row, 'Clinical_significance_ENIGMA')],
+            )
+        counts['variant_enigma'] += 1
+
+    if 'ClinVar' in sources:
+        with connections[DB].cursor() as cur:
+            cur.execute(
+                'INSERT INTO variant_clinvar ("VRS_Digest_id","Source_URL") VALUES (%s,%s)',
+                [digest, '-'],
+            )
+        counts['variant_clinvar'] += 1
+
+    if 'LOVD' in sources:
+        with connections[DB].cursor() as cur:
+            cur.execute(
+                '''INSERT INTO variant_lovd
+                       ("VRS_Digest_id","Source_URL","Variant_haplotype")
+                   VALUES (%s,'-','-')''',
+                [digest],
+            )
+        counts['variant_lovd'] += 1
+
+    if 'exLOVD' in sources:
+        with connections[DB].cursor() as cur:
+            cur.execute(
+                '''INSERT INTO variant_exlovd
+                       ("VRS_Digest_id","Source_URL","Exon","DNA_Change",
+                        "BIC_DNA_Change","Protein_Change","Posterior_P",
+                        "IARC_Class","DBID","Missense_Analysis_Prior_P",
+                        "Splicing_Prior_P","Combined_Prior_P","Segregation_LR",
+                        "Pathology_LR","Co_Occurrence_LR","Case_Control_LR",
+                        "Product_Of_LRs","Comments")
+                   VALUES (%s,'-','-','-','-','-',%s,%s,%s,%s,'-',%s,%s,%s,%s,%s,'-',%s)''',
+                [digest,
+                 f(row, 'Posterior_probability_exLOVD'), f(row, 'IARC_class_exLOVD'),
+                 f(row, 'BX_ID_exLOVD'),
+                 f(row, 'Missense_analysis_prior_probability_exLOVD'),
+                 f(row, 'Combined_prior_probablility_exLOVD'),
+                 f(row, 'Segregation_LR_exLOVD'),
+                 nullable(row, 'Pathology_LR_exLOVD'),
+                 f(row, 'Co_occurrence_LR_exLOVD'),
+                 nullable(row, 'Case_control_LR_exLOVD'),
+                 f(row, 'Literature_source_exLOVD')],
+            )
+        counts['variant_exlovd'] += 1
+
+    if 'GnomAD' in sources or 'GnomADv3' in sources:
+        with connections[DB].cursor() as cur:
+            cur.execute(
+                'INSERT INTO variant_gnomad ("VRS_Digest_id","Source_URL") VALUES (%s,\'-\')',
+                [digest],
+            )
+        counts['variant_gnomad'] += 1
+
+
+def load_report_row(row, digest, counts):
+    source = row['Source']
+
+    if source == 'ClinVar':
+        with connections[DB].cursor() as cur:
+            cur.execute(
+                '''INSERT INTO report_clinvar
+                       ("VRS_Digest_id","Clinical_Significance","Date_Last_Updated",
+                        "DateSignificanceLastEvaluated","Submitter","SCV","SCV_Version",
+                        "Allele_Origin","Method","Description","Summary_Evidence",
+                        "Review_Status","Condition_Type","Condition_Value","Condition_DB_ID")
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                [digest,
+                 f(row, 'Clinical_Significance_ClinVar'),
+                 f(row, 'Date_Last_Updated_ClinVar'),
+                 f(row, 'DateSignificanceLastEvaluated_ClinVar'),
+                 f(row, 'Submitter_ClinVar'),
+                 f(row, 'SCV_ClinVar'),
+                 f(row, 'SCV_Version_ClinVar'),
+                 f(row, 'Allele_Origin_ClinVar'),
+                 f(row, 'Method_ClinVar'),
+                 f(row, 'Description_ClinVar'),
+                 f(row, 'Summary_Evidence_ClinVar'),
+                 f(row, 'Review_Status_ClinVar'),
+                 f(row, 'Condition_Type_ClinVar'),
+                 f(row, 'Condition_Value_ClinVar'),
+                 f(row, 'Condition_DB_ID_ClinVar')],
+            )
+        counts['report_clinvar'] += 1
+
+    elif source == 'LOVD':
+        with connections[DB].cursor() as cur:
+            cur.execute(
+                '''INSERT INTO report_lovd
+                       ("VRS_Digest_id","Variant_frequency","Individuals",
+                        "Variant_effect","Genetic_origin","Submitters",
+                        "Functional_analysis_technique","Functional_analysis_result",
+                        "Created_date","Edited_date","DBID",
+                        "Remarks","Classification","Submission_ID")
+                   VALUES (%s,%s,%s,%s,%s,%s,'-','-',%s,%s,%s,%s,%s,%s)''',
+                [digest,
+                 f(row, 'Variant_frequency_LOVD'), f(row, 'Individuals_LOVD'),
+                 f(row, 'Variant_effect_LOVD'), f(row, 'Genetic_origin_LOVD'),
+                 f(row, 'Submitters_LOVD'),
+                 f(row, 'Created_date_LOVD'), f(row, 'Edited_date_LOVD'),
+                 f(row, 'DBID_LOVD'),
+                 nullable(row, 'Remarks_LOVD'), nullable(row, 'Classification_LOVD'),
+                 f(row, 'Submission_ID_LOVD')],
+            )
+        counts['report_lovd'] += 1
+
+    elif source == 'GnomAD':
+        pops = {
+            'genome_ac': f(row, 'Allele_count_genome_GnomAD'),
+            'genome_an': f(row, 'Allele_number_genome_GnomAD'),
+            'genome_af': f(row, 'Allele_frequency_genome_GnomAD'),
+            'exome_ac':  f(row, 'Allele_count_exome_GnomAD'),
+            'exome_an':  f(row, 'Allele_number_exome_GnomAD'),
+            'exome_af':  f(row, 'Allele_frequency_exome_GnomAD'),
+        }
+        with connections[DB].cursor() as cur:
+            cur.execute(
+                '''INSERT INTO report_gnomad
+                       ("VRS_Digest_id", version, "Variant_id", "Flags",
+                        "Allele_count", "Allele_number", "Allele_frequency",
+                        faf95_popmax, faf95_popmax_population, populations)
+                   VALUES (%s,'v2',%s,%s,%s,%s,%s,%s,%s,%s::jsonb)''',
+                [digest,
+                 f(row, 'Variant_id_GnomAD'), f(row, 'Flags_GnomAD'),
+                 f(row, 'Allele_count_genome_GnomAD'),
+                 f(row, 'Allele_number_genome_GnomAD'),
+                 f(row, 'Allele_frequency_genome_GnomAD'),
+                 f(row, 'faf95_popmax_genome_GnomAD'),
+                 f(row, 'faf95_popmax_population_genome_GnomAD'),
+                 json.dumps(pops)],
+            )
+        counts['report_gnomad'] += 1
+
+    elif source == 'GnomADv3':
+        pops = {
+            'genome_ac':     f(row, 'Allele_count_genome_GnomADv3'),
+            'genome_an':     f(row, 'Allele_number_genome_GnomADv3'),
+            'genome_af':     f(row, 'Allele_frequency_genome_GnomADv3'),
+            'genome_ac_hom': f(row, 'Allele_count_hom_genome_AFR_GnomADv3'),
+        }
+        with connections[DB].cursor() as cur:
+            cur.execute(
+                '''INSERT INTO report_gnomad
+                       ("VRS_Digest_id", version, "Variant_id", "Flags",
+                        "Allele_count", "Allele_number", "Allele_frequency",
+                        faf95_popmax, faf95_popmax_population, populations)
+                   VALUES (%s,'v3',%s,%s,%s,%s,%s,%s,%s,%s::jsonb)''',
+                [digest,
+                 f(row, 'Variant_id_GnomADv3'), f(row, 'Flags_GnomADv3'),
+                 f(row, 'Allele_count_genome_GnomADv3'),
+                 f(row, 'Allele_number_genome_GnomADv3'),
+                 f(row, 'Allele_frequency_genome_GnomADv3'),
+                 f(row, 'faf95_popmax_genome_GnomADv3'),
+                 f(row, 'faf95_popmax_population_genome_GnomADv3'),
+                 json.dumps(pops)],
+            )
+        counts['report_gnomad'] += 1
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--built-tsv',   required=True, help='Path to built_with_change_types.tsv')
+    parser.add_argument('--reports-tsv', required=True, help='Path to reports_with_change_types.tsv')
+    args = parser.parse_args()
+
+    flush()
+
+    counts = {t: 0 for t in FLUSH_ORDER}
+
+    # Pass 1: variant-level tables
+    coord_key_to_digest = {}
+    print(f'Pass 1: {args.built_tsv} ...')
+    with open(args.built_tsv) as fh:
+        reader = csv.DictReader(fh, delimiter='\t')
+        with transaction.atomic(using=DB):
+            for row in reader:
+                digest = row['VR_ID'].removeprefix('ga4gh:VA.')
+                load_variant_row(row, digest, counts)
+                key = (row['Chr'], row['Pos'], row['Ref'], row['Alt'])
+                coord_key_to_digest[key] = digest
+
+    # Pass 2: report-level tables
+    print(f'Pass 2: {args.reports_tsv} ...')
+    skipped = 0
+    with open(args.reports_tsv) as fh:
+        reader = csv.DictReader(fh, delimiter='\t')
+        with transaction.atomic(using=DB):
+            for row in reader:
+                key = (row['Chr'], row['Pos'], row['Ref'], row['Alt'])
+                digest = coord_key_to_digest.get(key)
+                if digest is None:
+                    skipped += 1
+                    continue
+                load_report_row(row, digest, counts)
+
+    if skipped:
+        print(f'Warning: skipped {skipped} report rows with no matching variant', file=sys.stderr)
+
+    print()
+    for table in FLUSH_ORDER:
+        print(f'{table}: {counts[table]}')
+    print('Done')
+
+
+if __name__ == '__main__':
+    main()
