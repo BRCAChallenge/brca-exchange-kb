@@ -139,12 +139,14 @@ class Variant_in_GnomAD(models.Model):
 
 
 class Report_in_GnomAD(models.Model):
-    """GnomAD frequency data — one row per variant per version (v2/v3/v4)."""
+    """GnomAD frequency data — one row per variant per version and data type."""
     VRS_Digest = models.ForeignKey(Variant_in_GnomAD, on_delete=models.CASCADE, related_name='gnomad_reports')
 
     version = models.TextField()
+    data_type = models.TextField(default='-')    # 'joint', 'genome', or 'exome'
     Variant_id = models.TextField(default='-', db_index=True)
     Flags = models.TextField(default='-')
+    coverage = models.TextField(default='-')
     Allele_count = models.TextField(default='-')
     Allele_number = models.TextField(default='-')
     Allele_frequency = models.TextField(default='-')
@@ -155,7 +157,7 @@ class Report_in_GnomAD(models.Model):
     class Meta:
         db_table = 'report_gnomad'
         managed = False
-        unique_together = ('VRS_Digest', 'version')
+        unique_together = ('VRS_Digest', 'version', 'data_type')
 
 
 class Variant_in_Other(models.Model):

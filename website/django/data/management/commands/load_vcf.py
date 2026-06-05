@@ -5,13 +5,15 @@ Usage:
     python manage.py load_vcf [--vcf-out /path/to/vcf_out]
 
 Sources (in priority order for Variant fields):
-  1. ENIGMA     → variant, genomic_coordinates, variant_enigma
-  2. ClinVar    → variant (upsert), genomic_coordinates, variant_clinvar, report_clinvar
-  3. LOVD       → variant (upsert), genomic_coordinates, variant_lovd, report_lovd
-  4. exLOVD     → variant (upsert), genomic_coordinates, variant_exlovd
-  5. gnomAD v2  → variant, genomic_coordinates, variant_gnomad, report_gnomad
-  6. gnomAD v3  → variant, genomic_coordinates, variant_gnomad, report_gnomad
-  7. gnomAD v4  → variant, genomic_coordinates, variant_gnomad, report_gnomad
+  1. ENIGMA          → variant, genomic_coordinates, variant_enigma
+  2. ClinVar         → variant (upsert), genomic_coordinates, variant_clinvar, report_clinvar
+  3. LOVD            → variant (upsert), genomic_coordinates, variant_lovd, report_lovd
+  4. exLOVD          → variant (upsert), genomic_coordinates, variant_exlovd
+  5. gnomAD v2       → variant, genomic_coordinates, variant_gnomad, report_gnomad (data_type=exome)
+  6. gnomAD v3       → variant, genomic_coordinates, variant_gnomad, report_gnomad (data_type=genome)
+  7. gnomAD v4       → variant, genomic_coordinates, variant_gnomad, report_gnomad (data_type=joint)
+  8. gnomAD v4.1 joint  → variant, genomic_coordinates, variant_gnomad, report_gnomad (data_type=joint)
+  9. gnomAD v4.1 exome  → variant, genomic_coordinates, variant_gnomad, report_gnomad (data_type=exome)
 """
 
 import pickle
@@ -88,6 +90,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         for source in ('enigma', 'clinvar', 'lovd', 'exlovd',
                        'gnomad-v2', 'gnomad-v3', 'gnomad-v4',
+                       'gnomad-v41-joint', 'gnomad-v41-exome',
                        'functional-assay'):
             parser.add_argument(f'--{source}-vcf',  required=True, help=f'Path to {source} VCF (.vcf.gz)')
             parser.add_argument(f'--{source}-pkl',  required=True, help=f'Path to {source} pickle (.dicts.pkl)')
@@ -98,14 +101,16 @@ class Command(BaseCommand):
             return Path(options[f'{key}_vcf']), Path(options[f'{key}_pkl'])
 
         loaders = [
-            ('ENIGMA',            self._load_enigma,            *paths('enigma')),
-            ('ClinVar',           self._load_clinvar,           *paths('clinvar')),
-            ('LOVD',              self._load_lovd,              *paths('lovd')),
-            ('exLOVD',            self._load_exlovd,            *paths('exlovd')),
-            ('gnomAD v2',         self._load_gnomad_v2,         *paths('gnomad-v2')),
-            ('gnomAD v3',         self._load_gnomad_v3,         *paths('gnomad-v3')),
-            ('gnomAD v4',         self._load_gnomad_v4,         *paths('gnomad-v4')),
-            ('functional assays', self._load_functional_assays, *paths('functional-assay')),
+            ('ENIGMA',               self._load_enigma,              *paths('enigma')),
+            ('ClinVar',              self._load_clinvar,             *paths('clinvar')),
+            ('LOVD',                 self._load_lovd,                *paths('lovd')),
+            ('exLOVD',               self._load_exlovd,              *paths('exlovd')),
+            ('gnomAD v2',            self._load_gnomad_v2,           *paths('gnomad-v2')),
+            ('gnomAD v3',            self._load_gnomad_v3,           *paths('gnomad-v3')),
+            ('gnomAD v4',            self._load_gnomad_v4,           *paths('gnomad-v4')),
+            ('gnomAD v4.1 joint',    self._load_gnomad_v41_joint,    *paths('gnomad-v41-joint')),
+            ('gnomAD v4.1 exome',    self._load_gnomad_v41_exome,    *paths('gnomad-v41-exome')),
+            ('functional assays',    self._load_functional_assays,   *paths('functional-assay')),
         ]
 
         self._flush()
@@ -402,8 +407,9 @@ class Command(BaseCommand):
         vcf.close()
         return n
 
-    def _load_gnomad(self, vcf_path, pkl, version, ac_key, an_key, af_key,
-                     variant_id_key, faf_key, faf_pop_key, build_populations):
+    def _load_gnomad(self, vcf_path, pkl, version, data_type, ac_key, an_key, af_key,
+                     variant_id_key, faf_key, faf_pop_key, build_populations,
+                     coverage_key=None):
         vcf = pysam.VariantFile(str(vcf_path))
         n = 0
         for rec in vcf:
@@ -432,15 +438,17 @@ class Command(BaseCommand):
             Report_in_GnomAD.objects.using(DB).get_or_create(
                 VRS_Digest=gnomad_rec,
                 version=version,
+                data_type=data_type,
                 defaults={
-                    'Variant_id':            info_str(rec, variant_id_key),
-                    'Flags':                 info_str(rec, 'flags'),
-                    'Allele_count':          info_str(rec, ac_key),
-                    'Allele_number':         info_str(rec, an_key),
-                    'Allele_frequency':      info_str(rec, af_key),
-                    'faf95_popmax':          info_str(rec, faf_key),
+                    'Variant_id':              info_str(rec, variant_id_key),
+                    'Flags':                   info_str(rec, 'flags'),
+                    'coverage':                info_str(rec, coverage_key) if coverage_key else '-',
+                    'Allele_count':            info_str(rec, ac_key),
+                    'Allele_number':           info_str(rec, an_key),
+                    'Allele_frequency':        info_str(rec, af_key),
+                    'faf95_popmax':            info_str(rec, faf_key),
                     'faf95_popmax_population': info_str(rec, faf_pop_key),
-                    'populations':           build_populations(rec),
+                    'populations':             build_populations(rec),
                 },
             )
             n += 1
@@ -457,7 +465,7 @@ class Command(BaseCommand):
                 'exome_an':  info_str(rec, 'exome_an'),
                 'exome_af':  info_str(rec, 'exome_af'),
             }
-        return self._load_gnomad(vcf_path, pkl, version='v2',
+        return self._load_gnomad(vcf_path, pkl, version='v2', data_type='exome',
             ac_key='genome_ac', an_key='genome_an', af_key='genome_af',
             variant_id_key='variantId',
             faf_key='popmax_genome', faf_pop_key='popmax_population_genome',
@@ -472,7 +480,7 @@ class Command(BaseCommand):
                 'genome_af':     info_str(rec, 'genome_af'),
                 'genome_ac_hom': info_str(rec, 'genome_ac_hom'),
             }
-        return self._load_gnomad(vcf_path, pkl, version='v3',
+        return self._load_gnomad(vcf_path, pkl, version='v3', data_type='genome',
             ac_key='genome_ac', an_key='genome_an', af_key='genome_af',
             variant_id_key='variant_id',
             faf_key='genome_popmax', faf_pop_key='genome_popmax_population',
@@ -482,22 +490,58 @@ class Command(BaseCommand):
     def _load_gnomad_v4(self, vcf_path, pkl):
         def populations(rec):
             return {
-                'joint_ac':     info_str(rec, 'AC_joint'),
-                'joint_an':     info_str(rec, 'AN_joint'),
-                'joint_af':     info_str(rec, 'AF_joint'),
-                'genome_ac':    info_str(rec, 'AC_genomes'),
-                'genome_an':    info_str(rec, 'AN_genomes'),
-                'genome_af':    info_str(rec, 'AF_genomes'),
-                'exome_ac':     info_str(rec, 'AC_exomes'),
-                'exome_an':     info_str(rec, 'AN_exomes'),
-                'exome_af':     info_str(rec, 'AF_exomes'),
+                'joint_ac':      info_str(rec, 'AC_joint'),
+                'joint_an':      info_str(rec, 'AN_joint'),
+                'joint_af':      info_str(rec, 'AF_joint'),
+                'genome_ac':     info_str(rec, 'AC_genomes'),
+                'genome_an':     info_str(rec, 'AN_genomes'),
+                'genome_af':     info_str(rec, 'AF_genomes'),
+                'exome_ac':      info_str(rec, 'AC_exomes'),
+                'exome_an':      info_str(rec, 'AN_exomes'),
+                'exome_af':      info_str(rec, 'AF_exomes'),
                 'nhomalt_joint': info_str(rec, 'nhomalt_joint'),
             }
-        return self._load_gnomad(vcf_path, pkl, version='v4',
+        return self._load_gnomad(vcf_path, pkl, version='v4', data_type='joint',
             ac_key='AC_joint', an_key='AN_joint', af_key='AF_joint',
             variant_id_key='variant_id',
             faf_key='fafmax_faf95_max_joint', faf_pop_key='fafmax_faf95_max_gen_anc_joint',
             build_populations=populations,
+        )
+
+    def _load_gnomad_v41_joint(self, vcf_path, pkl):
+        def populations(rec):
+            return {
+                'joint_ac':      info_str(rec, 'AC_joint'),
+                'joint_an':      info_str(rec, 'AN_joint'),
+                'joint_af':      info_str(rec, 'AF_joint'),
+                'genome_ac':     info_str(rec, 'AC_genomes'),
+                'genome_an':     info_str(rec, 'AN_genomes'),
+                'genome_af':     info_str(rec, 'AF_genomes'),
+                'exome_ac':      info_str(rec, 'AC_exomes'),
+                'exome_an':      info_str(rec, 'AN_exomes'),
+                'exome_af':      info_str(rec, 'AF_exomes'),
+                'nhomalt_joint': info_str(rec, 'nhomalt_joint'),
+            }
+        return self._load_gnomad(vcf_path, pkl, version='v4.1', data_type='joint',
+            ac_key='AC_joint', an_key='AN_joint', af_key='AF_joint',
+            variant_id_key='variant_id',
+            faf_key='fafmax_faf95_max_joint', faf_pop_key='fafmax_faf95_max_gen_anc_joint',
+            build_populations=populations, coverage_key='coverage',
+        )
+
+    def _load_gnomad_v41_exome(self, vcf_path, pkl):
+        def populations(rec):
+            return {
+                'exome_ac':  info_str(rec, 'AC'),
+                'exome_an':  info_str(rec, 'AN'),
+                'exome_af':  info_str(rec, 'AF'),
+                'nhomalt':   info_str(rec, 'nhomalt'),
+            }
+        return self._load_gnomad(vcf_path, pkl, version='v4.1', data_type='exome',
+            ac_key='AC', an_key='AN', af_key='AF',
+            variant_id_key='variant_id',
+            faf_key='fafmax_faf95_max', faf_pop_key='fafmax_faf95_max_gen_anc',
+            build_populations=populations, coverage_key='coverage',
         )
 
     # ------------------------------------------------------------------

@@ -590,6 +590,28 @@ class ProvideGnomADv41ExomeVCF(GnomADTask):
             shutil.copy(self.output().path, self.resources_vcf)
 
 
+@requires(ProvideGnomADv41JointVCF, ProvideGnomADv41ExomeVCF)
+class VRSAnnotateGnomADv41(VCFAssemblyTask):
+    """VRS-annotate the gnomAD v4.1 joint and exome VCFs."""
+
+    def output(self):
+        return {
+            "joint_vcf": luigi.LocalTarget(f"{self.vcf_dir}/gnomADv4.1.joint.hg38.vcf.gz"),
+            "joint_pkl": luigi.LocalTarget(f"{self.vcf_dir}/gnomADv4.1.joint.hg38.dicts.pkl"),
+            "exome_vcf": luigi.LocalTarget(f"{self.vcf_dir}/gnomADv4.1.exome.hg38.vcf.gz"),
+            "exome_pkl": luigi.LocalTarget(f"{self.vcf_dir}/gnomADv4.1.exome.hg38.dicts.pkl"),
+        }
+
+    def run(self):
+        joint_in, exome_in = self.input()
+        self._vrs_annotate(joint_in.path,
+                           self.output()["joint_vcf"].path,
+                           self.output()["joint_pkl"].path)
+        self._vrs_annotate(exome_in.path,
+                           self.output()["exome_vcf"].path,
+                           self.output()["exome_pkl"].path)
+
+
 ###############################################
 #           LOAD VCFs TO DATABASE             #
 ###############################################
@@ -601,8 +623,7 @@ class ProvideGnomADv41ExomeVCF(GnomADTask):
     VRSAnnotateEXLOVD,
     VRSAnnotateGnomAD,
     VRSAnnotateFunctionalAssays,
-    ProvideGnomADv41JointVCF,
-    ProvideGnomADv41ExomeVCF,
+    VRSAnnotateGnomADv41,
 )
 class LoadVCFsToDatabase(VCFAssemblyTask):
     """Call the load_vcf Django management command to load all VCFs into the pipeline DB."""
@@ -615,25 +636,29 @@ class LoadVCFsToDatabase(VCFAssemblyTask):
         return luigi.LocalTarget(os.path.join(self.vcf_dir, "load_vcfs_to_db.done"))
 
     def run(self):
-        enigma_in, clinvar_in, lovd_in, exlovd_in, gnomad_in, assays_in, joint_vcf_in, exome_vcf_in = self.input()
+        enigma_in, clinvar_in, lovd_in, exlovd_in, gnomad_in, assays_in, gnomad_v41_in = self.input()
         args = [
             "python", "manage.py", "load_vcf", "--skip-checks",
-            "--enigma-vcf",           enigma_in["vcf"].path,
-            "--enigma-pkl",           enigma_in["pkl"].path,
-            "--clinvar-vcf",          clinvar_in["vcf"].path,
-            "--clinvar-pkl",          clinvar_in["pkl"].path,
-            "--lovd-vcf",             lovd_in["vcf"].path,
-            "--lovd-pkl",             lovd_in["pkl"].path,
-            "--exlovd-vcf",           exlovd_in["vcf"].path,
-            "--exlovd-pkl",           exlovd_in["pkl"].path,
-            "--gnomad-v2-vcf",        gnomad_in["v2_vcf"].path,
-            "--gnomad-v2-pkl",        gnomad_in["v2_pkl"].path,
-            "--gnomad-v3-vcf",        gnomad_in["v3_vcf"].path,
-            "--gnomad-v3-pkl",        gnomad_in["v3_pkl"].path,
-            "--gnomad-v4-vcf",        gnomad_in["v4_vcf"].path,
-            "--gnomad-v4-pkl",        gnomad_in["v4_pkl"].path,
-            "--functional-assay-vcf", assays_in["vcf"].path,
-            "--functional-assay-pkl", assays_in["pkl"].path,
+            "--enigma-vcf",              enigma_in["vcf"].path,
+            "--enigma-pkl",              enigma_in["pkl"].path,
+            "--clinvar-vcf",             clinvar_in["vcf"].path,
+            "--clinvar-pkl",             clinvar_in["pkl"].path,
+            "--lovd-vcf",                lovd_in["vcf"].path,
+            "--lovd-pkl",                lovd_in["pkl"].path,
+            "--exlovd-vcf",              exlovd_in["vcf"].path,
+            "--exlovd-pkl",              exlovd_in["pkl"].path,
+            "--gnomad-v2-vcf",           gnomad_in["v2_vcf"].path,
+            "--gnomad-v2-pkl",           gnomad_in["v2_pkl"].path,
+            "--gnomad-v3-vcf",           gnomad_in["v3_vcf"].path,
+            "--gnomad-v3-pkl",           gnomad_in["v3_pkl"].path,
+            "--gnomad-v4-vcf",           gnomad_in["v4_vcf"].path,
+            "--gnomad-v4-pkl",           gnomad_in["v4_pkl"].path,
+            "--gnomad-v41-joint-vcf",    gnomad_v41_in["joint_vcf"].path,
+            "--gnomad-v41-joint-pkl",    gnomad_v41_in["joint_pkl"].path,
+            "--gnomad-v41-exome-vcf",    gnomad_v41_in["exome_vcf"].path,
+            "--gnomad-v41-exome-pkl",    gnomad_v41_in["exome_pkl"].path,
+            "--functional-assay-vcf",    assays_in["vcf"].path,
+            "--functional-assay-pkl",    assays_in["pkl"].path,
         ]
         os.chdir(self.django_dir)
         pipeline_utils.run_process(args)
