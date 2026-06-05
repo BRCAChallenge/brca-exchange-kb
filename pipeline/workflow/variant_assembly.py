@@ -1,6 +1,7 @@
 import datetime
 import os
 import re
+import shutil
 import tempfile
 
 import luigi
@@ -12,6 +13,7 @@ from workflow import pipeline_utils
 from workflow.pipeline_common import PipelineParams
 
 _pipeline_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_RESOURCES_DIR = os.path.normpath(os.path.join(_pipeline_dir, '..', '..', 'resources'))
 clinvar_method_dir           = os.path.join(_pipeline_dir, 'clinvar')
 functional_assays_method_dir = os.path.join(_pipeline_dir, 'functional_assays')
 data_merging_method_dir      = os.path.join(_pipeline_dir, 'data_merging')
@@ -522,6 +524,80 @@ class DownloadGnomADCoverage(VCFAssemblyTask):
             '-v',
         ]
         self._run_process_with_pipeline_path(args)
+
+
+class ProvideGnomADv41JointVCF(GnomADTask):
+    """Provide the gnomAD v4.1 joint VCF for BRCA genes.
+
+    Copies from the resources directory if available; otherwise downloads
+    and postprocesses the data from gnomAD, then copies the result back to
+    the resources directory for future runs.
+    """
+    gene_config = luigi.Parameter(
+        default=os.path.join(_pipeline_dir, 'workflow', 'gene_config_brca_only.txt'),
+        description='Gene config file with chr/start_hg38/end_hg38 columns')
+    joint_coverage_parquet = luigi.Parameter(
+        default=os.path.join(_RESOURCES_DIR, 'gnomADv4.1.coverage.joint.parquet'),
+        description='Path to the precomputed joint weighted coverage parquet')
+    resources_vcf = luigi.Parameter(
+        default=os.path.join(_RESOURCES_DIR, 'gnomADv4.1.joint.hg38.vcf'),
+        description='Cached VCF path in the resources directory')
+
+    def output(self):
+        return luigi.LocalTarget(f"{self.gnomad_file_dir}/gnomADv4.1.joint.hg38.vcf")
+
+    def run(self):
+        try:
+            shutil.copy(self.resources_vcf, self.output().path)
+        except (FileNotFoundError, OSError):
+            script = os.path.join(_pipeline_dir, 'gnomad', 'download_gnomad_fourpointone.py')
+            args = [
+                'python', script,
+                '-g', self.gene_config,
+                '-c', self.joint_coverage_parquet,
+                '-o', self.output().path,
+                '--source', 'joint',
+                '-v',
+            ]
+            self._run_process_with_pipeline_path(args)
+            shutil.copy(self.output().path, self.resources_vcf)
+
+
+class ProvideGnomADv41ExomeVCF(GnomADTask):
+    """Provide the gnomAD v4.1 exome VCF for BRCA genes.
+
+    Copies from the resources directory if available; otherwise downloads
+    and postprocesses the data from gnomAD, then copies the result back to
+    the resources directory for future runs.
+    """
+    gene_config = luigi.Parameter(
+        default=os.path.join(_pipeline_dir, 'workflow', 'gene_config_brca_only.txt'),
+        description='Gene config file with chr/start_hg38/end_hg38 columns')
+    exome_coverage_parquet = luigi.Parameter(
+        default=os.path.join(_RESOURCES_DIR, 'gnomADv4.1.coverage.exome.parquet'),
+        description='Path to the precomputed exome coverage parquet')
+    resources_vcf = luigi.Parameter(
+        default=os.path.join(_RESOURCES_DIR, 'gnomADv4.1.exome.hg38.vcf'),
+        description='Cached VCF path in the resources directory')
+
+    def output(self):
+        return luigi.LocalTarget(f"{self.gnomad_file_dir}/gnomADv4.1.exome.hg38.vcf")
+
+    def run(self):
+        try:
+            shutil.copy(self.resources_vcf, self.output().path)
+        except (FileNotFoundError, OSError):
+            script = os.path.join(_pipeline_dir, 'gnomad', 'download_gnomad_fourpointone.py')
+            args = [
+                'python', script,
+                '-g', self.gene_config,
+                '-c', self.exome_coverage_parquet,
+                '-o', self.output().path,
+                '--source', 'exome',
+                '-v',
+            ]
+            self._run_process_with_pipeline_path(args)
+            shutil.copy(self.output().path, self.resources_vcf)
 
 
 ###############################################

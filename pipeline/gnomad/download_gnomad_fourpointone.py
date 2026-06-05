@@ -18,15 +18,19 @@ Description:
     them to VCF.
 
     This script generates one VCF per selected gene, and the joint (exome
-    plus genome) counts and allele frequencies.  It takes as input a gene
-    list, with coordinates, encapsulated in one of the gene_config_* files
-    found in the pipeline workflow directory.  For each gene, it generates
-    output with the filename '<gene>.gnomADv4.1.vcf'
+    plus genome) or exome-only counts and allele frequencies.  It takes as
+    input a gene list, with coordinates, encapsulated in one of the
+    gene_config_* files found in the pipeline workflow directory.  For each
+    gene, it generates output with the filename '<gene>.gnomADv4.1.<source>.vcf'
 """
 
-GNOMAD_DOWNLOAD_URL = (
+GNOMAD_JOINT_DOWNLOAD_URL = (
     "https://storage.googleapis.com/gcp-public-data--gnomad/release/4.1/vcf/"
     "joint/gnomad.joint.v4.1.sites.chr%s.vcf.bgz"
+    )
+GNOMAD_EXOME_DOWNLOAD_URL = (
+    "https://storage.googleapis.com/gcp-public-data--gnomad/release/4.1/vcf/"
+    "exomes/gnomad.exomes.v4.1.sites.chr%s.vcf.bgz"
     )
 
 def parse_args():
@@ -39,14 +43,16 @@ def parse_args():
                         default="gnomADv4.hg38.vcf")
     parser.add_argument('-c', '--coverage', required=True,
                         help="path to precomputed weighted coverage parquet")
+    parser.add_argument('-s', '--source', choices=['joint', 'exome'], default='joint',
+                        help="gnomAD v4.1 data source: joint (default) or exome")
     parser.add_argument('-v', '--verbose', action='count', default=False,
                         help='determines logging')
     args = parser.parse_args()
     return args
 
-def process_one_gene(chrom, start_coord, end_coord, output_vcf, logger):
+def process_one_gene(chrom, start_coord, end_coord, output_vcf, download_url, logger):
     # Step 1: download the VCF and its .tbi file
-    remote_file_vcf = GNOMAD_DOWNLOAD_URL % chrom
+    remote_file_vcf = download_url % chrom
     local_file_vcf = chrom + ".vcf"
     logger.info("downloading %s" % remote_file_vcf)
     urlretrieve(remote_file_vcf, local_file_vcf)
@@ -118,13 +124,15 @@ def main():
     logger = logging.getLogger(__name__)
     logging.basicConfig(filename=args.logfile, filemode="w",
                         level=logging_level)
+    download_url = (GNOMAD_JOINT_DOWNLOAD_URL if args.source == 'joint'
+                    else GNOMAD_EXOME_DOWNLOAD_URL)
     gene_config_data = csv.DictReader(args.gene_config)
     tmp = tempfile.NamedTemporaryFile()
     with open(tmp.name, 'w') as tmp_fp:
         for row in gene_config_data:
-            output_vcf = "%s.gnomADv4.1.joint.vcf.gz" % row["symbol"]
+            output_vcf = "%s.gnomADv4.1.%s.vcf.gz" % (row["symbol"], args.source)
             process_one_gene(row["chr"], row["start_hg38"], row["end_hg38"],
-                             output_vcf, logger)
+                             output_vcf, download_url, logger)
             tmp_fp.write(output_vcf + "\n")
     merge_cmd = ["bcftools", "merge", "--file-list", tmp.name,
                     "-Ov", "-o", "unsorted.vcf"]
