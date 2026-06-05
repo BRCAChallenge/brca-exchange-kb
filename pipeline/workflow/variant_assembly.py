@@ -485,6 +485,7 @@ class VRSAnnotateGnomAD(VCFAssemblyTask):
 class DownloadGnomADCoverage(VCFAssemblyTask):
     """Download gnomAD genome + exome coverage and write a combined weighted-mean parquet.
 
+    Also writes per-source parquets for the V4 exome and V3 genome coverage.
     Disabled by default; pass --DownloadGnomADCoverage-enabled true to run.
     """
     enabled = luigi.BoolParameter(default=False)
@@ -494,9 +495,19 @@ class DownloadGnomADCoverage(VCFAssemblyTask):
     coverage_output = luigi.Parameter(
         default=os.path.join(_pipeline_dir, '..', '..', 'resources', 'gnomADv4.1.coverage.joint.parquet'),
         description='Output path for the combined weighted-mean coverage parquet')
+    exome_coverage_output = luigi.Parameter(
+        default=os.path.join(_pipeline_dir, '..', '..', 'resources', 'gnomADv4.1.coverage.exome.parquet'),
+        description='Output path for the V4 exome gene-region coverage parquet')
+    genome_coverage_output = luigi.Parameter(
+        default=os.path.join(_pipeline_dir, '..', '..', 'resources', 'gnomADv3.1.coverage.genome.parquet'),
+        description='Output path for the V3 genome gene-region coverage parquet')
 
     def output(self):
-        return luigi.LocalTarget(os.path.normpath(self.coverage_output))
+        return {
+            'joint':  luigi.LocalTarget(os.path.normpath(self.coverage_output)),
+            'exome':  luigi.LocalTarget(os.path.normpath(self.exome_coverage_output)),
+            'genome': luigi.LocalTarget(os.path.normpath(self.genome_coverage_output)),
+        }
 
     def run(self):
         if not self.enabled:
@@ -506,6 +517,8 @@ class DownloadGnomADCoverage(VCFAssemblyTask):
             'python', script,
             '-g', self.gene_config,
             '-c', os.path.normpath(self.coverage_output),
+            '--exome-coverage-output', os.path.normpath(self.exome_coverage_output),
+            '--genome-coverage-output', os.path.normpath(self.genome_coverage_output),
             '-v',
         ]
         self._run_process_with_pipeline_path(args)

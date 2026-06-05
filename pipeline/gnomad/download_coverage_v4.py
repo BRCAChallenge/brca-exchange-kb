@@ -54,6 +54,12 @@ def parse_args():
                         default="gnomADv4.hg38.vcf")
     parser.add_argument('-c', '--coverage_output', help="output parquet file for weighted coverage",
                         default=GNOMAD_COMBINED_COVERAGE_PARQUET)
+    parser.add_argument('--exome-coverage-output',
+                        help="output parquet file for V4 exome coverage (gene regions only)",
+                        default=None)
+    parser.add_argument('--genome-coverage-output',
+                        help="output parquet file for V3 genome coverage (gene regions only)",
+                        default=None)
     parser.add_argument('-v', '--verbose', action='count', default=False,
                         help='determines logging')
     args = parser.parse_args()
@@ -145,12 +151,20 @@ def build_coverage_parquet(tsv_path, gene_boundaries, parquet_path, logger):
     return parquet_path
 
 
-def prepare_coverage_data(logger, gene_boundaries):
+def prepare_coverage_data(logger, gene_boundaries,
+                          genome_parquet_path=GNOMAD_GENOME_COVERAGE_PARQUET,
+                          exome_parquet_path=GNOMAD_EXOME_COVERAGE_PARQUET):
     """
-    Download the gnomAD genome and exome coverage TSV files if needed, then
-    convert each to a parquet file.  Each DataFrame is written to disk and
-    removed from memory before the next file is read, keeping peak memory use
-    to one coverage dataset at a time.
+    Download the gnomAD genome (v3) and exome (v4) coverage TSV files if needed,
+    then convert each to a gene-region parquet file.  Each DataFrame is written
+    to disk and removed from memory before the next file is read, keeping peak
+    memory use to one coverage dataset at a time.
+
+    Args:
+        logger:              Logger instance.
+        gene_boundaries:     Dict mapping chrom -> (start, end).
+        genome_parquet_path: Destination for the V3 genome coverage parquet.
+        exome_parquet_path:  Destination for the V4 exome coverage parquet.
 
     Returns:
         Tuple of (genome_parquet_path, exome_parquet_path).
@@ -162,9 +176,9 @@ def prepare_coverage_data(logger, gene_boundaries):
         logger.info("Downloading exome coverage from %s" % GNOMAD_EXOMES_DOWNLOAD_URL)
         urlretrieve(GNOMAD_EXOMES_DOWNLOAD_URL, GNOMAD_EXOME_COVERAGE_TSV)
     genome_parquet = build_coverage_parquet(
-        GNOMAD_GENOME_COVERAGE_TSV, gene_boundaries, GNOMAD_GENOME_COVERAGE_PARQUET, logger)
+        GNOMAD_GENOME_COVERAGE_TSV, gene_boundaries, genome_parquet_path, logger)
     exome_parquet = build_coverage_parquet(
-        GNOMAD_EXOME_COVERAGE_TSV, gene_boundaries, GNOMAD_EXOME_COVERAGE_PARQUET, logger)
+        GNOMAD_EXOME_COVERAGE_TSV, gene_boundaries, exome_parquet_path, logger)
     return genome_parquet, exome_parquet
 
     
@@ -222,13 +236,24 @@ def main():
     gene_config_data = config.load_config(args.gene_config)
     boundaries38 = {c: (s, e) for _, (c, s, e)
                     in gene_config_data[['chr', 'start_hg38', 'end_hg38']].iterrows()}
+
+    genome_parquet_path = args.genome_coverage_output or GNOMAD_GENOME_COVERAGE_PARQUET
+    exome_parquet_path  = args.exome_coverage_output  or GNOMAD_EXOME_COVERAGE_PARQUET
+
     (genome_parquet,
-     exome_parquet) = prepare_coverage_data(logger, boundaries38)
+     exome_parquet) = prepare_coverage_data(logger, boundaries38,
+                                            genome_parquet_path=genome_parquet_path,
+                                            exome_parquet_path=exome_parquet_path)
     build_weighted_coverage_parquet(genome_parquet, exome_parquet,
                                     args.coverage_output, logger)
-    for f in (GNOMAD_GENOME_COVERAGE_TSV, GNOMAD_EXOME_COVERAGE_TSV,
-              genome_parquet, exome_parquet):
+
+    # Remove TSVs; only remove intermediate parquets if they were not requested as outputs
+    for f in (GNOMAD_GENOME_COVERAGE_TSV, GNOMAD_EXOME_COVERAGE_TSV):
         os.remove(f)
+    if not args.genome_coverage_output:
+        os.remove(genome_parquet)
+    if not args.exome_coverage_output:
+        os.remove(exome_parquet)
 
 
 if __name__ == "__main__":
