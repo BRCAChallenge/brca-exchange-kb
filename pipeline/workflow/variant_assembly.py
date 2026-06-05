@@ -526,6 +526,7 @@ class DownloadGnomADCoverage(VCFAssemblyTask):
         self._run_process_with_pipeline_path(args)
 
 
+@requires(DownloadGnomADCoverage)
 class ProvideGnomADv41JointVCF(GnomADTask):
     """Provide the gnomAD v4.1 joint VCF for BRCA genes.
 
@@ -533,12 +534,6 @@ class ProvideGnomADv41JointVCF(GnomADTask):
     and postprocesses the data from gnomAD, then copies the result back to
     the resources directory for future runs.
     """
-    gene_config = luigi.Parameter(
-        default=os.path.join(_pipeline_dir, 'workflow', 'gene_config_brca_only.txt'),
-        description='Gene config file with chr/start_hg38/end_hg38 columns')
-    joint_coverage_parquet = luigi.Parameter(
-        default=os.path.join(_RESOURCES_DIR, 'gnomADv4.1.coverage.joint.parquet'),
-        description='Path to the precomputed joint weighted coverage parquet')
     resources_vcf = luigi.Parameter(
         default=os.path.join(_RESOURCES_DIR, 'gnomADv4.1.joint.hg38.vcf'),
         description='Cached VCF path in the resources directory')
@@ -554,7 +549,7 @@ class ProvideGnomADv41JointVCF(GnomADTask):
             args = [
                 'python', script,
                 '-g', self.gene_config,
-                '-c', self.joint_coverage_parquet,
+                '-c', self.input()['joint'].path,
                 '-o', self.output().path,
                 '--source', 'joint',
                 '-v',
@@ -563,6 +558,7 @@ class ProvideGnomADv41JointVCF(GnomADTask):
             shutil.copy(self.output().path, self.resources_vcf)
 
 
+@requires(DownloadGnomADCoverage)
 class ProvideGnomADv41ExomeVCF(GnomADTask):
     """Provide the gnomAD v4.1 exome VCF for BRCA genes.
 
@@ -570,12 +566,6 @@ class ProvideGnomADv41ExomeVCF(GnomADTask):
     and postprocesses the data from gnomAD, then copies the result back to
     the resources directory for future runs.
     """
-    gene_config = luigi.Parameter(
-        default=os.path.join(_pipeline_dir, 'workflow', 'gene_config_brca_only.txt'),
-        description='Gene config file with chr/start_hg38/end_hg38 columns')
-    exome_coverage_parquet = luigi.Parameter(
-        default=os.path.join(_RESOURCES_DIR, 'gnomADv4.1.coverage.exome.parquet'),
-        description='Path to the precomputed exome coverage parquet')
     resources_vcf = luigi.Parameter(
         default=os.path.join(_RESOURCES_DIR, 'gnomADv4.1.exome.hg38.vcf'),
         description='Cached VCF path in the resources directory')
@@ -591,7 +581,7 @@ class ProvideGnomADv41ExomeVCF(GnomADTask):
             args = [
                 'python', script,
                 '-g', self.gene_config,
-                '-c', self.exome_coverage_parquet,
+                '-c', self.input()['exome'].path,
                 '-o', self.output().path,
                 '--source', 'exome',
                 '-v',
@@ -611,6 +601,8 @@ class ProvideGnomADv41ExomeVCF(GnomADTask):
     VRSAnnotateEXLOVD,
     VRSAnnotateGnomAD,
     VRSAnnotateFunctionalAssays,
+    ProvideGnomADv41JointVCF,
+    ProvideGnomADv41ExomeVCF,
 )
 class LoadVCFsToDatabase(VCFAssemblyTask):
     """Call the load_vcf Django management command to load all VCFs into the pipeline DB."""
@@ -623,7 +615,7 @@ class LoadVCFsToDatabase(VCFAssemblyTask):
         return luigi.LocalTarget(os.path.join(self.vcf_dir, "load_vcfs_to_db.done"))
 
     def run(self):
-        enigma_in, clinvar_in, lovd_in, exlovd_in, gnomad_in, assays_in = self.input()
+        enigma_in, clinvar_in, lovd_in, exlovd_in, gnomad_in, assays_in, joint_vcf_in, exome_vcf_in = self.input()
         args = [
             "python", "manage.py", "load_vcf", "--skip-checks",
             "--enigma-vcf",           enigma_in["vcf"].path,
