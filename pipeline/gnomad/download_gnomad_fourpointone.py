@@ -1,21 +1,23 @@
-#!/usr/bin/env python
+#!/Usr/bin/env python
 
 import argparse
 import csv
 import glob
 import logging
 import os
-import shutil
+import pandas as pd
+import re
 import subprocess
 import tempfile
 from urllib.request import urlretrieve
+import pysam
 
 """
 Description:
     Downloads the gnomAD v4.1 data for the selected genes and translates
     them to VCF.
 
-    This script generates one VCF per selected gene, and the joint (exome 
+    This script generates one VCF per selected gene, and the joint (exome
     plus genome) counts and allele frequencies.  It takes as input a gene
     list, with coordinates, encapsulated in one of the gene_config_* files
     found in the pipeline workflow directory.  For each gene, it generates
@@ -35,6 +37,8 @@ def parse_args():
                         default='download_gnomad_fourpointone.log')
     parser.add_argument('-o', '--output', help="output file",
                         default="gnomADv4.hg38.vcf")
+    parser.add_argument('-c', '--coverage', required=True,
+                        help="path to precomputed weighted coverage parquet")
     parser.add_argument('-v', '--verbose', action='count', default=False,
                         help='determines logging')
     args = parser.parse_args()
@@ -57,12 +61,54 @@ def process_one_gene(chrom, start_coord, end_coord, output_vcf, logger):
     with open(output_vcf, "w") as f_out:
         subprocess.run(bcftools_cmd, stdout=f_out)
     subprocess.run(["bcftools", "index", "-t", output_vcf])
-        
+
     # Step 3: cleanup.  Remove the big VCF file and its tbi file
     os.remove(local_file_vcf)
     os.remove(local_file_tbi)
 
-    
+
+def postprocess(input_vcf, output_vcf, coverage_parquet, logger):
+    """Postprocess the gnomAD file by adding variant_id, flags, and coverage.
+
+    Coverage is looked up from the precomputed weighted coverage parquet
+    (output of build_weighted_coverage_parquet).  For multi-position variants
+    the per-position weighted_mean_coverage values are averaged over the range.
+    """
+    logger.info("Reading coverage from %s" % coverage_parquet)
+    coverage = pd.read_parquet(coverage_parquet)
+    reader = pysam.VariantFile(input_vcf, 'r')
+    reader.header.info.add("variant_id", number=1, type="String",
+                           description="gnomAD-style variant ID")
+    reader.header.info.add("flags", number=1, type="String",
+                           description="gnomAD flags, from the FILTER field")
+    reader.header.info.add("coverage", number=1, type="String",
+                           description="Variant coverage, according to gnomAD")
+    writer = pysam.VariantFile(output_vcf, 'w', header=reader.header)
+    for record in reader:
+        if record.filter.keys()[0] == "PASS":
+            record.info['flags'] = "-"
+        else:
+            record.info['flags'] = ','.join(record.filter.keys())
+        alt = record.alts[0]
+        var_id = "%s-%s-%s-%s" % (re.sub("^chr", "", record.chrom),
+                                  str(record.pos), record.ref, alt)
+        record.info['variant_id'] = var_id
+        chrom_int = int(str(record.chrom).replace('chr', ''))
+        variant_start = record.pos
+        variant_end = record.pos + len(alt) - len(record.ref)
+        region = coverage[
+            (coverage['chrom'] == chrom_int) &
+            (coverage['pos'] >= variant_start) &
+            (coverage['pos'] <= variant_end)
+        ]
+        cov = region['weighted_mean_coverage'].mean() if not region.empty else None
+        logger.debug("coverage for %s: %s" % (var_id, cov))
+        record.info['coverage'] = str(cov)
+        writer.write(record)
+    reader.close()
+    writer.close()
+
+
 def main():
     args = parse_args()
     if args.verbose:
@@ -84,19 +130,16 @@ def main():
                     "-Ov", "-o", "unsorted.vcf"]
     subprocess.run(merge_cmd)
     sort_cmd = ["bcftools", "sort", "unsorted.vcf",
-                "-Ov", "-o", args.output]
+                "-Ov", "-o", "sorted.vcf"]
     subprocess.run(sort_cmd)
-    
-    
-    #
-    # Clean up the individual files and their indices
+    postprocess("sorted.vcf", args.output, args.coverage, logger)
+
     for thisfile in glob.glob("*.vcf.gz*"):
         os.remove(thisfile)
     os.remove("unsorted.vcf")
+    os.remove("sorted.vcf")
 
 
-    
 
-    
 if __name__ == "__main__":
     main()
