@@ -607,9 +607,21 @@ class VRSAnnotateGnomADv41(VCFAssemblyTask):
         self._vrs_annotate(joint_in.path,
                            self.output()["joint_vcf"].path,
                            self.output()["joint_pkl"].path)
-        self._vrs_annotate(exome_in.path,
-                           self.output()["exome_vcf"].path,
-                           self.output()["exome_pkl"].path)
+        # gnomAD v4.1 exome ships with VRS_Allele_IDs already in the header;
+        # strip them so vrs-annotate can add its own.
+        with tempfile.NamedTemporaryFile(suffix='.vcf', delete=False) as tmp:
+            stripped = tmp.name
+        try:
+            pipeline_utils.run_process([
+                'bcftools', 'annotate', '-x',
+                'INFO/VRS_Allele_IDs,INFO/VRS_Starts,INFO/VRS_Ends,INFO/VRS_States',
+                '-o', stripped, exome_in.path
+            ])
+            self._vrs_annotate(stripped,
+                               self.output()["exome_vcf"].path,
+                               self.output()["exome_pkl"].path)
+        finally:
+            os.unlink(stripped)
 
 
 ###############################################

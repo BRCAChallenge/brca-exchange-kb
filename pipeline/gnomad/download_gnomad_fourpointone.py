@@ -82,6 +82,8 @@ def postprocess(input_vcf, output_vcf, coverage_parquet, logger):
     """
     logger.info("Reading coverage from %s" % coverage_parquet)
     coverage = pd.read_parquet(coverage_parquet)
+    cov_col = ('weighted_mean_coverage' if 'weighted_mean_coverage' in coverage.columns
+               else 'mean')
     reader = pysam.VariantFile(input_vcf, 'r')
     reader.header.info.add("variant_id", number=1, type="String",
                            description="gnomAD-style variant ID")
@@ -107,7 +109,7 @@ def postprocess(input_vcf, output_vcf, coverage_parquet, logger):
             (coverage['pos'] >= variant_start) &
             (coverage['pos'] <= variant_end)
         ]
-        cov = region['weighted_mean_coverage'].mean() if not region.empty else None
+        cov = region[cov_col].mean() if not region.empty else None
         logger.debug("coverage for %s: %s" % (var_id, cov))
         record.info['coverage'] = str(cov)
         writer.write(record)
