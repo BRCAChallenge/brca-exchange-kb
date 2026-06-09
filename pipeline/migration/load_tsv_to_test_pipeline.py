@@ -235,10 +235,10 @@ def load_report_row(row, digest, counts):
         with connections[DB].cursor() as cur:
             cur.execute(
                 '''INSERT INTO report_gnomad
-                       ("VRS_Digest_id", version, "Variant_id", "Flags",
+                       ("VRS_Digest_id", version, data_type, "Variant_id", "Flags",
                         "Allele_count", "Allele_number", "Allele_frequency",
-                        faf95_popmax, faf95_popmax_population, populations)
-                   VALUES (%s,'v2',%s,%s,%s,%s,%s,%s,%s,%s::jsonb)''',
+                        faf95_popmax, faf95_popmax_population, populations, coverage)
+                   VALUES (%s,'v2','exome',%s,%s,%s,%s,%s,%s,%s,%s::jsonb,'-')''',
                 [digest,
                  f(row, 'Variant_id_GnomAD'), f(row, 'Flags_GnomAD'),
                  f(row, 'Allele_count_genome_GnomAD'),
@@ -260,10 +260,10 @@ def load_report_row(row, digest, counts):
         with connections[DB].cursor() as cur:
             cur.execute(
                 '''INSERT INTO report_gnomad
-                       ("VRS_Digest_id", version, "Variant_id", "Flags",
+                       ("VRS_Digest_id", version, data_type, "Variant_id", "Flags",
                         "Allele_count", "Allele_number", "Allele_frequency",
-                        faf95_popmax, faf95_popmax_population, populations)
-                   VALUES (%s,'v3',%s,%s,%s,%s,%s,%s,%s,%s::jsonb)''',
+                        faf95_popmax, faf95_popmax_population, populations, coverage)
+                   VALUES (%s,'v3','genome',%s,%s,%s,%s,%s,%s,%s,%s::jsonb,'-')''',
                 [digest,
                  f(row, 'Variant_id_GnomADv3'), f(row, 'Flags_GnomADv3'),
                  f(row, 'Allele_count_genome_GnomADv3'),
@@ -294,7 +294,10 @@ def main():
         reader = csv.DictReader(fh, delimiter='\t')
         with transaction.atomic(using=DB):
             for row in reader:
-                digest = row['VR_ID'].removeprefix('ga4gh:VA.')
+                vr_id = row.get('VR_ID', '')
+                if not vr_id or vr_id == '-':
+                    continue
+                digest = vr_id.removeprefix('ga4gh:VA.')
                 load_variant_row(row, digest, counts)
                 key = (row['Chr'], row['Pos'], row['Ref'], row['Alt'])
                 coord_key_to_digest[key] = digest
