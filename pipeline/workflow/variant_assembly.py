@@ -663,8 +663,6 @@ class LoadVCFsToDatabase(VCFAssemblyTask):
             "--gnomad-v2-pkl",           gnomad_in["v2_pkl"].path,
             "--gnomad-v3-vcf",           gnomad_in["v3_vcf"].path,
             "--gnomad-v3-pkl",           gnomad_in["v3_pkl"].path,
-            "--gnomad-v4-vcf",           gnomad_in["v4_vcf"].path,
-            "--gnomad-v4-pkl",           gnomad_in["v4_pkl"].path,
             "--gnomad-v41-joint-vcf",    gnomad_v41_in["joint_vcf"].path,
             "--gnomad-v41-joint-pkl",    gnomad_v41_in["joint_pkl"].path,
             "--gnomad-v41-exome-vcf",    gnomad_v41_in["exome_vcf"].path,

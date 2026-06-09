@@ -89,7 +89,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         for source in ('enigma', 'clinvar', 'lovd', 'exlovd',
-                       'gnomad-v2', 'gnomad-v3', 'gnomad-v4',
+                       'gnomad-v2', 'gnomad-v3',
                        'gnomad-v41-joint', 'gnomad-v41-exome',
                        'functional-assay'):
             parser.add_argument(f'--{source}-vcf',  required=True, help=f'Path to {source} VCF (.vcf.gz)')
@@ -107,7 +107,6 @@ class Command(BaseCommand):
             ('exLOVD',               self._load_exlovd,              *paths('exlovd')),
             ('gnomAD v2',            self._load_gnomad_v2,           *paths('gnomad-v2')),
             ('gnomAD v3',            self._load_gnomad_v3,           *paths('gnomad-v3')),
-            ('gnomAD v4',            self._load_gnomad_v4,           *paths('gnomad-v4')),
             ('gnomAD v4.1 joint',    self._load_gnomad_v41_joint,    *paths('gnomad-v41-joint')),
             ('gnomAD v4.1 exome',    self._load_gnomad_v41_exome,    *paths('gnomad-v41-exome')),
             ('functional assays',    self._load_functional_assays,   *paths('functional-assay')),
