@@ -267,7 +267,7 @@ def get_synonyms(gene_symbol, genomic_hgvs_string, target_transcripts, hdp, pars
             try:
                 var_c = assembly_mapper.g_to_c(genomic_hgvs, transcript)
                 synonyms.append(str(normalizer.normalize(var_c)))
-            except HGVSError as e:
+            except Exception as e:
                 logging.info("Exception in synonym handling for mapping %s to transcript %s" % (str(genomic_hgvs), transcript))
     return list({str(s) for s in synonyms}) # making sure, every representation appears only once
 
@@ -335,7 +335,8 @@ def ensure_mane_transcript_cdna(row, mane_transcript, hgvs_proc, normalizer, am3
             row[REFERENCE_SEQUENCE_COL] = parts[0]
             row[HGVS_CDNA_COL] = parts[1]
         except (hgvs.exceptions.HGVSInvalidIntervalError,
-                hgvs.exceptions.HGVSUnsupportedOperationError):
+                hgvs.exceptions.HGVSUnsupportedOperationError,
+                hgvs.exceptions.HGVSDataNotAvailableError):
             logging.warning(
                 f"Could not remap {row[PYHGVS_GENOMIC_COORDINATE_38_COL]} to MANE transcript {mane_transcript}")
             row[REFERENCE_SEQUENCE_COL] = mane_transcript
@@ -390,9 +391,13 @@ def process_rows(rows, mane_transcript_dict, syn_ac_dict, chrom_ac_dict,
                                 debug=debug)
             if debug:
                 print("Updating synonyms via SeqRepo")
-            new_synonyms = get_synonyms(
-                this_gene, genomic_hgvs_38, syn_ac_dict[this_gene], hdp,
-                hp, genomic_normalizer, am38)
+            try:
+                new_synonyms = get_synonyms(
+                    this_gene, genomic_hgvs_38, syn_ac_dict[this_gene], hdp,
+                    hp, genomic_normalizer, am38)
+            except Exception as e:
+                logging.warning(f"get_synonyms failed for {genomic_hgvs_38}: {e}")
+                new_synonyms = []
             row[SYNONYMS_COL] = _merge_and_clean_synonyms(row, new_synonyms)
         if row[PYHGVS_GENOMIC_COORDINATE_37_COL]:
             (row[PYHGVS_HG37_START_COL], row[PYHGVS_HG37_END_COL]) = genomic_hgvs_to_coords(row[PYHGVS_GENOMIC_COORDINATE_37_COL], hp)
@@ -421,6 +426,16 @@ def _init_hgvs_tools():
     am37 = hgvs_proc.hgvs_ams[HgvsWrapper.GRCh37_Assem]
     lo = LiftOver('hg38', 'hg19')
     return hp, genomic_normalizer, am38, am37, hgvs_proc, lo
+
+
+def _normalize_gene_symbol(gene_symbol, known_genes):
+    """Return the canonical gene symbol if gene_symbol contains one, else None."""
+    if gene_symbol in known_genes:
+        return gene_symbol
+    for symbol in known_genes:
+        if symbol in gene_symbol:
+            return symbol
+    return None
 
 
 def _load_rows_from_db(conn, schema):
@@ -529,6 +544,11 @@ def main():
         conn.autocommit = False
         rows = _load_rows_from_db(conn, args.schema)
         logging.info('Loaded %d variants from DB', len(rows))
+        known_genes = set(mane_transcript_dict.keys())
+        for row in rows:
+            row['Gene_Symbol'] = _normalize_gene_symbol(row['Gene_Symbol'], known_genes)
+        rows = [r for r in rows if r['Gene_Symbol'] is not None]
+        logging.info('Filtered to %d variants with known gene symbols', len(rows))
         processed_rows = process_rows(rows, mane_transcript_dict, syn_ac_dict, chrom_ac_dict,
                                       hgvs_proc, hp, genomic_normalizer, am38, am37, lo,
                                       debug=args.debug)
