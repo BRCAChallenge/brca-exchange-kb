@@ -717,6 +717,41 @@ class QueryClinGenAlleleRegistry(VCFAssemblyTask):
 
 
 ###############################################
+#          RUN PSEUDONYM GENERATOR            #
+###############################################
+
+_data_merging_dir = os.path.join(_pipeline_dir, 'data_merging')
+
+@requires(LoadVCFsToDatabase)
+class RunPseudonymGenerator(VCFAssemblyTask):
+    """Compute HGVS pseudonyms for all variants in the DB via pseudonym_generator.py.
+
+    Reads variants directly from the pipeline DB and writes enriched fields
+    (Reference_Sequence, HGVS_cDNA, HGVS_Protein, CA_ID, Synonyms, GRCh37
+    genomic_coordinates) back to the DB."""
+
+    db_url = luigi.Parameter(
+        default='postgresql://postgres:postgres@localhost/storage.pg',
+        description='PostgreSQL connection URL for the pipeline DB')
+
+    def output(self):
+        return luigi.LocalTarget(os.path.join(self.vcf_dir, "run_pseudonym_generator.done"))
+
+    def run(self):
+        script = os.path.join(_data_merging_dir, "pseudonym_generator.py")
+        gene_config = os.path.join(_pipeline_dir, 'workflow', 'gene_config_brca_only.txt')
+        args = [
+            "python", script,
+            "--db-url",    self.db_url,
+            "--configfile", gene_config,
+            "--resources",  self.cfg.resources_dir,
+        ]
+        self._run_process_with_pipeline_path(args)
+        with open(self.output().path, "w") as f:
+            f.write("done\n")
+
+
+###############################################
 #           LOAD ENIGMA DOMAINS               #
 ###############################################
 
@@ -747,6 +782,7 @@ class LoadEnigmaDomains(VCFAssemblyTask):
     VRSAnnotateGnomAD,
     QueryClinGenAlleleRegistry,
     LoadEnigmaDomains,
+    RunPseudonymGenerator,
 )
 class VCFAssembly(VCFAssemblyTask):
     """Runs all source chains, VRS-annotates each VCF, loads to DB, and writes sentinel."""
