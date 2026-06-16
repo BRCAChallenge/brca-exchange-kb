@@ -354,7 +354,7 @@ def process_rows(rows, mane_transcript_dict, syn_ac_dict, chrom_ac_dict,
     pyhgvs_Genomic_Coordinate_37, pyhgvs_Hg37_Start, pyhgvs_Hg37_End,
     pyhgvs_Protein, CA_ID, Genomic_HGVS_38, Genomic_HGVS_37.
     """
-    hdp = hgvs_proc.hdp
+    hdp = hgvs_proc.hgvs_dp
 
     hgvs_values = [
         hgvs_proc.genomic_hgvs(row[CHR_COL], int(row[POS_COL]), row[REF_COL], row[ALT_COL])
@@ -414,14 +414,13 @@ def process_rows(rows, mane_transcript_dict, syn_ac_dict, chrom_ac_dict,
 
 
 def _init_hgvs_tools():
-    hdp = hgvs.dataproviders.uta.connect()
-    hp = Parser()
-    genomic_normalizer = Normalizer(hdp)
-    am38 = AssemblyMapper(hdp, assembly_name="GRCh38", alt_aln_method="splign", normalize=True)
-    am37 = AssemblyMapper(hdp, assembly_name="GRCh37", alt_aln_method="splign", normalize=True)
     hgvs_proc = HgvsWrapper()
+    hp = hgvs_proc.hgvs_parser
+    genomic_normalizer = hgvs_proc.hgvs_norm
+    am38 = hgvs_proc.hgvs_ams[HgvsWrapper.GRCh38_Assem]
+    am37 = hgvs_proc.hgvs_ams[HgvsWrapper.GRCh37_Assem]
     lo = LiftOver('hg38', 'hg19')
-    return hdp, hp, genomic_normalizer, am38, am37, hgvs_proc, lo
+    return hp, genomic_normalizer, am38, am37, hgvs_proc, lo
 
 
 def _load_rows_from_db(conn, schema):
@@ -523,7 +522,7 @@ def main():
     syn_ac_dict = {r[config.SYMBOL_COL]: r[config.SYNONYM_AC_COL].split(';') for _, r in config_df.iterrows()}
     chrom_ac_dict = {r[config.SYMBOL_COL]: r[config.CHROM_COL] for _, r in config_df.iterrows()}
 
-    hdp, hp, genomic_normalizer, am38, am37, hgvs_proc, lo = _init_hgvs_tools()
+    hp, genomic_normalizer, am38, am37, hgvs_proc, lo = _init_hgvs_tools()
 
     if args.db_url:
         conn = psycopg2.connect(args.db_url)
