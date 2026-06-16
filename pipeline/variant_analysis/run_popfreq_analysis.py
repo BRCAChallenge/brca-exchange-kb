@@ -9,8 +9,12 @@ genomic_coordinates, and computes provisional population frequency
 evidence codes for each variant. Results are upserted into
 analysis_provisional_evidence_codes.
 
-A gnomAD v4.1 coverage Parquet file and optionally a low-complexity
-region BED file must still be supplied as local files.
+Coverage is assessed in priority order: gnomAD v4.1 joint, then gnomAD v4.1
+exome, then gnomAD v3.1 genome. The first dataset that is sufficient for the
+variant is used. If none is sufficient, the evidence code is set to
+FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG.
+
+An LCR BED file may optionally be supplied as a local file.
 """
 
 import bisect
@@ -232,6 +236,22 @@ def field_defined(field):
     return field != "-"
 
 
+def is_sufficient(read_depth, is_flagged, rare_variant):
+    """
+    Return True if a coverage dataset is sufficient for a variant.
+
+    A dataset is sufficient when the variant is not in gnomAD or has no gnomAD
+    filter flags, and the coverage meets the appropriate read-depth threshold
+    (READ_DEPTH_THRESHOLD_RARE_VARIANT for rare variants,
+    READ_DEPTH_THRESHOLD_FREQUENT_VARIANT for frequent variants).
+    """
+    if is_flagged:
+        return False
+    threshold = (READ_DEPTH_THRESHOLD_RARE_VARIANT if rare_variant
+                 else READ_DEPTH_THRESHOLD_FREQUENT_VARIANT)
+    return read_depth >= threshold
+
+
 def analyze_one_dataset(faf95_popmax_str, allele_count, snv_or_small_indel,
                         read_depth, vcf_filter_flag,
                         allele_count_threshold,
@@ -295,13 +315,17 @@ def analyze_one_dataset(faf95_popmax_str, allele_count, snv_or_small_indel,
 def _compute_evidence_code(hgvs_cdna, chr_, pos, ref, alt,
                             gnomad_flags, gnomad_allele_count,
                             gnomad_faf95, gnomad_faf95_population,
-                            cov4, lcr, config: PopfreqConfig, debug=False):
-    """Compute the popfreq evidence code for one variant from DB row fields."""
+                            coverage_datasets, lcr, config: PopfreqConfig, debug=False):
+    """Compute the popfreq evidence code for one variant from DB row fields.
+
+    coverage_datasets is a list of coverage dicts tried in priority order.
+    The first dataset that is sufficient for the variant is used. If none is
+    sufficient, FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG is returned.
+    """
     start = int(pos)
     end = start + len(ref) - 1
     chrom = int(chr_.lstrip('chr'))
 
-    _, read_depth = estimate_coverage(start, end, chrom, cov4, debug=debug)
     is_snv = (len(ref) == 1 and len(alt) == 1)
     indel_size = max(len(ref), len(alt)) - 1
     snv_or_small_indel = is_snv or (indel_size <= config.small_indel_size_threshold)
@@ -313,6 +337,13 @@ def _compute_evidence_code(hgvs_cdna, chr_, pos, ref, alt,
     # report_gnomad.Flags uses '-' for PASS; any other non-null value is a filter flag.
     is_flagged = gnomad_flags is not None and gnomad_flags != '-'
 
+    # Determine whether the variant is rare (mirrors logic in analyze_one_dataset).
+    if field_defined(faf95):
+        faf_val = float(faf95)
+        rare_variant = math.isnan(faf_val) or faf_val <= config.rare_variant_faf_threshold
+    else:
+        rare_variant = True
+
     if debug:
         print(f'  _compute_evidence_code inputs:')
         print(f'    hgvs_cdna={hgvs_cdna!r}  chr={chr_}  pos={pos}  ref={ref!r}')
@@ -321,7 +352,23 @@ def _compute_evidence_code(hgvs_cdna, chr_, pos, ref, alt,
         print(f'  derived:')
         print(f'    start={start}  end={end}  chrom={chrom}  is_snv={is_snv}  indel_size={indel_size}  snv_or_small_indel={snv_or_small_indel}')
         print(f'    faf95={faf95!r}  faf95_pop={faf95_pop!r}  allele_count={allele_count!r}')
-        print(f'    is_flagged={is_flagged}  read_depth={read_depth}')
+        print(f'    is_flagged={is_flagged}  rare_variant={rare_variant}')
+
+    # Try coverage datasets in priority order; use the first sufficient one.
+    read_depth = None
+    for cov_data in coverage_datasets:
+        _, depth = estimate_coverage(start, end, chrom, cov_data, debug=debug)
+        if is_sufficient(depth, is_flagged, rare_variant):
+            read_depth = depth
+            break
+
+    if read_depth is None:
+        if debug:
+            print(f'  output: code={FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG!r} (no sufficient dataset)')
+        return FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG, FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG_MSG
+
+    if debug:
+        print(f'    read_depth={read_depth}')
 
     # Per-population allele counts are not stored in the DB; '-' is used as placeholder
     # in the message text only (does not affect code assignment logic).
@@ -378,8 +425,12 @@ WHERE v."VRS_Digest" = %s
 @click.option('--db-url', default='postgresql://postgres:postgres@localhost/storage.pg',
               envvar='PIPELINE_DB_URL', show_default=True)
 @click.option('--schema', default='pipeline', show_default=True)
-@click.option('--coverage-file', required=True, type=click.Path(exists=True),
-              help='Parquet file of gnomAD v4.1 per-position coverage (chrom, pos, mean)')
+@click.option('--coverage-v4-joint', required=True, type=click.Path(exists=True),
+              help='Parquet file of gnomAD v4.1 joint (exome+genome) per-position coverage')
+@click.option('--coverage-v4-exome', default=None, type=click.Path(exists=True),
+              help='Parquet file of gnomAD v4.1 exome per-position coverage (fallback)')
+@click.option('--coverage-v3-genome', default=None, type=click.Path(exists=True),
+              help='Parquet file of gnomAD v3.1 genome per-position coverage (fallback)')
 @click.option('--lcr', default=None, type=click.Path(exists=True),
               help='BED file of low-complexity regions; variants overlapping an LCR '
                    'will not be assigned PM2_Supporting')
@@ -401,7 +452,8 @@ WHERE v."VRS_Digest" = %s
               show_default=True, help='Max ref length (bp) to be treated as a small indel eligible for PM2_Supporting')
 @click.option('--no-lcr', is_flag=True, default=False,
               help='Disable LCR filtering (PM2_Supporting may be assigned regardless of LCR overlap)')
-def main(db_url, schema, coverage_file, lcr, overwrite, debug, dry_run, vrs_digest, method_name,
+def main(db_url, schema, coverage_v4_joint, coverage_v4_exome, coverage_v3_genome,
+         lcr, overwrite, debug, dry_run, vrs_digest, method_name,
          bs1_supporting_faf_threshold, rare_variant_faf_threshold,
          small_indel_size_threshold, no_lcr):
     logging.basicConfig(level=logging.WARNING, format='%(levelname)s %(message)s')
@@ -416,8 +468,14 @@ def main(db_url, schema, coverage_file, lcr, overwrite, debug, dry_run, vrs_dige
         use_lcr=not no_lcr,
     )
 
-    print(f'Loading coverage: {coverage_file} ...')
-    cov4 = read_coverage(coverage_file)
+    coverage_datasets = []
+    for label, path in [('gnomAD v4.1 joint', coverage_v4_joint),
+                        ('gnomAD v4.1 exome', coverage_v4_exome),
+                        ('gnomAD v3.1 genome', coverage_v3_genome)]:
+        if path is not None:
+            print(f'Loading coverage: {path} ({label}) ...')
+            coverage_datasets.append(read_coverage(path))
+
     lcr_data = read_lcr(lcr) if lcr else None
 
     conn = psycopg2.connect(db_url, options=f'-c search_path={schema}')
@@ -451,7 +509,7 @@ def main(db_url, schema, coverage_file, lcr, overwrite, debug, dry_run, vrs_dige
             code, msg = _compute_evidence_code(
                 hgvs_cdna, chr_, pos, ref, alt,
                 flags, allele_count, faf95, faf95_pop,
-                cov4, lcr_data, config=config, debug=debug,
+                coverage_datasets, lcr_data, config=config, debug=debug,
             )
             results.append((vrs_digest_row, code, msg, method_name))
             if dry_run:

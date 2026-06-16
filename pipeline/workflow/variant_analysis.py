@@ -184,17 +184,39 @@ class LCRBed(luigi.ExternalTask):
 
 
 class CoverageParquet(luigi.ExternalTask):
-    """gnomAD v4.1 combined coverage parquet — expected to be present in the resources directory."""
+    """gnomAD v4.1 joint (exome+genome) coverage parquet."""
 
     coverage_path = luigi.Parameter(
         default=os.path.join(_RESOURCES_DIR, 'gnomADv4.1.coverage.joint.parquet'),
-        description='Path to the gnomAD v4.1 coverage parquet file')
+        description='Path to the gnomAD v4.1 joint coverage parquet file')
 
     def output(self):
         return luigi.LocalTarget(self.coverage_path)
 
 
-@requires(VCFAssembly, CoverageParquet, LCRBed)
+class CoverageParquetV4Exome(luigi.ExternalTask):
+    """gnomAD v4.1 exome coverage parquet."""
+
+    coverage_path = luigi.Parameter(
+        default=os.path.join(_RESOURCES_DIR, 'gnomADv4.1.coverage.exome.parquet'),
+        description='Path to the gnomAD v4.1 exome coverage parquet file')
+
+    def output(self):
+        return luigi.LocalTarget(self.coverage_path)
+
+
+class CoverageParquetV3Genome(luigi.ExternalTask):
+    """gnomAD v3.1 genome coverage parquet."""
+
+    coverage_path = luigi.Parameter(
+        default=os.path.join(_RESOURCES_DIR, 'gnomADv3.1.coverage.genome.parquet'),
+        description='Path to the gnomAD v3.1 genome coverage parquet file')
+
+    def output(self):
+        return luigi.LocalTarget(self.coverage_path)
+
+
+@requires(VCFAssembly, CoverageParquet, CoverageParquetV4Exome, CoverageParquetV3Genome, LCRBed)
 class AnalyzePopfreq(VCFAssemblyTask):
     """Populate analysis_provisional_evidence_codes with population frequency evidence codes."""
 
@@ -202,12 +224,15 @@ class AnalyzePopfreq(VCFAssemblyTask):
         return luigi.LocalTarget(os.path.join(self.vcf_dir, 'analyze_popfreq.done'))
 
     def run(self):
-        _, coverage_parquet, lcr_bed = self.input()
+        _, cov_v4_joint, cov_v4_exome, cov_v3_genome, lcr_bed = self.input()
         script = os.path.join(_pipeline_dir, 'variant_analysis', 'run_popfreq_analysis.py')
         args = [
             'python', script,
-            '--coverage-file', coverage_parquet.path,
+            '--coverage-v4-joint', cov_v4_joint.path,
+            '--coverage-v4-exome', cov_v4_exome.path,
+            '--coverage-v3-genome', cov_v3_genome.path,
             '--lcr', lcr_bed.path,
+            '--method-name', 'popfreq_1.3',
         ]
         self._run_process_with_pipeline_path(args)
         with open(self.output().path, 'w') as f:
@@ -231,7 +256,7 @@ class AnalyzePopfreqLegacy(VCFAssemblyTask):
         script = os.path.join(_pipeline_dir, 'variant_analysis', 'run_popfreq_analysis.py')
         args = [
             'python', script,
-            '--coverage-file', coverage_parquet.path,
+            '--coverage-v4-joint', coverage_parquet.path,
             '--method-name', 'popfreq_1.2',
             '--bs1-supporting-faf-threshold', '0.00002',
             '--rare-variant-faf-threshold', '0.00002',
