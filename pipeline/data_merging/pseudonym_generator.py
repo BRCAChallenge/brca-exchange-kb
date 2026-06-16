@@ -429,7 +429,7 @@ def _load_rows_from_db(conn, schema):
         cur.execute(f"""
             SELECT
                 v."VRS_Digest"           AS "VRS_Digest",
-                gc.chr                   AS "Chr",
+                REPLACE(gc.chr, 'chr', '') AS "Chr",
                 gc.pos                   AS "Pos",
                 gc.ref                   AS "Ref",
                 gc.alt                   AS "Alt",

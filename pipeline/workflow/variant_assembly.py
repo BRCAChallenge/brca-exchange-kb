@@ -746,6 +746,7 @@ class RunPseudonymGenerator(VCFAssemblyTask):
             "--configfile", gene_config,
             "--resources",  self.cfg.resources_dir,
         ]
+        os.environ['HGVS_SEQREPO_DIR'] = self.cfg.seq_repo_dir
         self._run_process_with_pipeline_path(args)
         with open(self.output().path, "w") as f:
             f.write("done\n")
