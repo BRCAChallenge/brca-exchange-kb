@@ -241,13 +241,10 @@ def is_sufficient(read_depth, is_flagged, rare_variant):
     """
     Return True if a coverage dataset is sufficient for a variant.
 
-    A dataset is sufficient when the variant is not in gnomAD or has no gnomAD
-    filter flags, and the coverage meets the appropriate read-depth threshold
-    (READ_DEPTH_THRESHOLD_RARE_VARIANT for rare variants,
-    READ_DEPTH_THRESHOLD_FREQUENT_VARIANT for frequent variants).
+    Sufficiency is determined by read depth alone — the flag check is handled
+    downstream in analyze_one_dataset, which assigns the appropriate code while
+    still recording which coverage dataset was used.
     """
-    if is_flagged:
-        return False
     threshold = (READ_DEPTH_THRESHOLD_RARE_VARIANT if rare_variant
                  else READ_DEPTH_THRESHOLD_FREQUENT_VARIANT)
     return read_depth >= threshold
