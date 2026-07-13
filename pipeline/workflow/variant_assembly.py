@@ -751,7 +751,7 @@ class QueryClinGenAlleleRegistry(VCFAssemblyTask):
         return luigi.LocalTarget(os.path.join(self.vcf_dir, "query_clingen_allele_registry.done"))
 
     def run(self):
-        script = os.path.join(_pipeline_dir, "variant_analysis", "query_clingen_allele_registry.py")
+        script = os.path.join(_pipeline_dir, "variant_assembly", "query_clingen_allele_registry.py")
         args = ["python", script]
         self._run_process_with_pipeline_path(args)
         with open(self.output().path, "w") as f:
