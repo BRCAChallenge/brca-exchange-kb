@@ -464,6 +464,38 @@ class DownloadStaticGnomADVCF(GnomADTask):
 
 
 @requires(DownloadStaticGnomADVCF)
+class PostprocessGnomADv3VCF(VCFAssemblyTask):
+    """Add coverage INFO field to the downloaded gnomAD v3 VCF.
+
+    The static v3 VCF already contains variant_id and flags fields but lacks
+    coverage. This task adds coverage from the v3.1 genome parquet so that
+    LoadVCFsToDatabase can store per-variant coverage for v3 entries.
+    """
+
+    gnomad_v3_genome_coverage = luigi.Parameter(
+        default=os.path.join(_RESOURCES_DIR, 'gnomADv3.1.coverage.genome.parquet'),
+        description='Path to the gnomAD v3.1 genome coverage parquet')
+
+    def output(self):
+        return luigi.LocalTarget(
+            f"{self.gnomad_file_dir}/gnomADv3.sorted.hg38.postprocessed.vcf"
+        )
+
+    def run(self):
+        download_out = self.input()
+        script = os.path.join(_pipeline_dir, 'gnomad', 'download_gnomad_fourpointone.py')
+        args = [
+            'python', script,
+            '--postprocess-only',
+            '--input-vcf', download_out['v3'].path,
+            '-c', self.gnomad_v3_genome_coverage,
+            '-o', self.output().path,
+            '-v',
+        ]
+        self._run_process_with_pipeline_path(args)
+
+
+@requires(DownloadStaticGnomADVCF, PostprocessGnomADv3VCF)
 class VRSAnnotateGnomAD(VCFAssemblyTask):
     def output(self):
         return {
@@ -476,12 +508,22 @@ class VRSAnnotateGnomAD(VCFAssemblyTask):
         }
 
     def run(self):
-        for version in ("v2", "v3", "v4"):
-            self._vrs_annotate(
-                self.input()[version].path,
-                self.output()[f"{version}_vcf"].path,
-                self.output()[f"{version}_pkl"].path,
-            )
+        download_out, v3_postprocessed = self.input()
+        self._vrs_annotate(
+            download_out["v2"].path,
+            self.output()["v2_vcf"].path,
+            self.output()["v2_pkl"].path,
+        )
+        self._vrs_annotate(
+            v3_postprocessed.path,
+            self.output()["v3_vcf"].path,
+            self.output()["v3_pkl"].path,
+        )
+        self._vrs_annotate(
+            download_out["v4"].path,
+            self.output()["v4_vcf"].path,
+            self.output()["v4_pkl"].path,
+        )
 
 
 class DownloadGnomADCoverage(VCFAssemblyTask):

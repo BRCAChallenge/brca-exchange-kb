@@ -47,6 +47,10 @@ def parse_args():
                         help="gnomAD v4.1 data source: joint (default) or exome")
     parser.add_argument('-v', '--verbose', action='count', default=False,
                         help='determines logging')
+    parser.add_argument('--postprocess-only', action='store_true',
+                        help='Skip download; postprocess --input-vcf with coverage and write to --output')
+    parser.add_argument('--input-vcf',
+                        help='Input VCF for --postprocess-only mode')
     args = parser.parse_args()
     return args
 
@@ -85,10 +89,12 @@ def postprocess(input_vcf, output_vcf, coverage_parquet, logger):
     cov_col = ('weighted_mean_coverage' if 'weighted_mean_coverage' in coverage.columns
                else 'mean')
     reader = pysam.VariantFile(input_vcf, 'r')
-    reader.header.info.add("variant_id", number=1, type="String",
-                           description="gnomAD-style variant ID")
-    reader.header.info.add("flags", number=1, type="String",
-                           description="gnomAD flags, from the FILTER field")
+    if 'variant_id' not in reader.header.info:
+        reader.header.info.add("variant_id", number=1, type="String",
+                               description="gnomAD-style variant ID")
+    if 'flags' not in reader.header.info:
+        reader.header.info.add("flags", number=1, type="String",
+                               description="gnomAD flags, from the FILTER field")
     reader.header.info.add("coverage", number=1, type="String",
                            description="Variant coverage, according to gnomAD")
     writer = pysam.VariantFile(output_vcf, 'w', header=reader.header)
@@ -126,6 +132,13 @@ def main():
     logger = logging.getLogger(__name__)
     logging.basicConfig(filename=args.logfile, filemode="w",
                         level=logging_level)
+
+    if args.postprocess_only:
+        if not args.input_vcf:
+            raise ValueError("--input-vcf is required with --postprocess-only")
+        postprocess(args.input_vcf, args.output, args.coverage, logger)
+        return
+
     download_url = (GNOMAD_JOINT_DOWNLOAD_URL if args.source == 'joint'
                     else GNOMAD_EXOME_DOWNLOAD_URL)
     gene_config_data = csv.DictReader(args.gene_config)

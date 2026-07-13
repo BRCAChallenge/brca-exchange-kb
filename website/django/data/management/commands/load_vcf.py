@@ -483,7 +483,7 @@ class Command(BaseCommand):
             ac_key='genome_ac', an_key='genome_an', af_key='genome_af',
             variant_id_key='variant_id',
             faf_key='genome_popmax', faf_pop_key='genome_popmax_population',
-            build_populations=populations,
+            build_populations=populations, coverage_key='coverage',
         )
 
     def _load_gnomad_v4(self, vcf_path, pkl):

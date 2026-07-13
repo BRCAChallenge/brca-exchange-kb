@@ -57,6 +57,7 @@ class PopfreqConfig:
     bs1_supporting_faf_threshold: float = _BS1_SUPPORTING_FAF_THRESHOLD
     rare_variant_faf_threshold:   float = _RARE_VARIANT_FAF_THRESHOLD
     small_indel_size_threshold:   int   = _SMALL_INDEL_SIZE_THRESHOLD
+    allele_count_threshold:       int   = ALLELE_COUNT_RARE_VARIANT_THRESHOLD
     use_lcr:                      bool  = True
 
     def ba1_msg(self, faf, pop, ac, an):
@@ -356,16 +357,18 @@ def _compute_evidence_code(hgvs_cdna, chr_, pos, ref, alt,
 
     # Try coverage datasets in priority order; use the first sufficient one.
     read_depth = None
-    for cov_data in coverage_datasets:
+    used_dataset_idx = None
+    for idx, cov_data in enumerate(coverage_datasets):
         _, depth = estimate_coverage(start, end, chrom, cov_data, debug=debug)
         if is_sufficient(depth, is_flagged, rare_variant):
             read_depth = depth
+            used_dataset_idx = idx
             break
 
     if read_depth is None:
         if debug:
             print(f'  output: code={FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG!r} (no sufficient dataset)')
-        return FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG, FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG_MSG
+        return FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG, FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG_MSG, None
 
     if debug:
         print(f'    read_depth={read_depth}')
@@ -374,7 +377,7 @@ def _compute_evidence_code(hgvs_cdna, chr_, pos, ref, alt,
     # in the message text only (does not affect code assignment logic).
     code, msg = analyze_one_dataset(
         faf95, allele_count, snv_or_small_indel, read_depth, is_flagged,
-        ALLELE_COUNT_RARE_VARIANT_THRESHOLD,
+        config.allele_count_threshold,
         chrom, start, end, lcr,
         faf95, faf95_pop,
         '-', '-',
@@ -385,17 +388,36 @@ def _compute_evidence_code(hgvs_cdna, chr_, pos, ref, alt,
     if debug:
         print(f'  output: code={code!r}')
 
-    return code, msg
+    return code, msg, used_dataset_idx
 
 
 _CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS analysis_provisional_evidence_codes (
-    "VRS_Digest"        text PRIMARY KEY
+    "VRS_Digest"        text NOT NULL
                              REFERENCES variant("VRS_Digest") ON DELETE CASCADE,
     popfreq_code        text,
     popfreq_description text,
-    method_name         text
+    method_name         text NOT NULL,
+    gnomad_version      text,
+    gnomad_data_type    text,
+    PRIMARY KEY ("VRS_Digest", method_name)
 )
+"""
+
+_ALTER_TABLE = """
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name   = 'analysis_provisional_evidence_codes'
+          AND column_name  = 'gnomad_version'
+    ) THEN
+        ALTER TABLE analysis_provisional_evidence_codes
+            ADD COLUMN gnomad_version  text,
+            ADD COLUMN gnomad_data_type text;
+    END IF;
+END $$;
 """
 
 _QUERY_ALL = """
@@ -407,7 +429,7 @@ FROM variant v
 JOIN genomic_coordinates gc
      ON gc."VRS_Digest_id" = v."VRS_Digest" AND gc.assembly = 'GRCh38'
 LEFT JOIN report_gnomad rg
-     ON rg."VRS_Digest_id" = v."VRS_Digest" AND rg.version = 'v4'
+     ON rg."VRS_Digest_id" = v."VRS_Digest" AND rg.version = 'v4.1' AND rg.data_type = 'joint'
 """
 
 _QUERY_UNSCORED = _QUERY_ALL + """
@@ -450,12 +472,14 @@ WHERE v."VRS_Digest" = %s
               show_default=True, help='FAF threshold at-or-below which a variant is considered rare')
 @click.option('--small-indel-size-threshold', default=_SMALL_INDEL_SIZE_THRESHOLD, type=int,
               show_default=True, help='Max ref length (bp) to be treated as a small indel eligible for PM2_Supporting')
+@click.option('--allele-count-rare-variant-threshold', default=ALLELE_COUNT_RARE_VARIANT_THRESHOLD, type=int,
+              show_default=True, help='Allele count above which PM2_Supporting is not assigned for rare variants')
 @click.option('--no-lcr', is_flag=True, default=False,
               help='Disable LCR filtering (PM2_Supporting may be assigned regardless of LCR overlap)')
 def main(db_url, schema, coverage_v4_joint, coverage_v4_exome, coverage_v3_genome,
          lcr, overwrite, debug, dry_run, vrs_digest, method_name,
          bs1_supporting_faf_threshold, rare_variant_faf_threshold,
-         small_indel_size_threshold, no_lcr):
+         small_indel_size_threshold, allele_count_rare_variant_threshold, no_lcr):
     logging.basicConfig(level=logging.WARNING, format='%(levelname)s %(message)s')
 
     if debug:
@@ -465,16 +489,21 @@ def main(db_url, schema, coverage_v4_joint, coverage_v4_exome, coverage_v3_genom
         bs1_supporting_faf_threshold=bs1_supporting_faf_threshold,
         rare_variant_faf_threshold=rare_variant_faf_threshold,
         small_indel_size_threshold=small_indel_size_threshold,
+        allele_count_threshold=allele_count_rare_variant_threshold,
         use_lcr=not no_lcr,
     )
 
     coverage_datasets = []
-    for label, path in [('gnomAD v4.1 joint', coverage_v4_joint),
-                        ('gnomAD v4.1 exome', coverage_v4_exome),
-                        ('gnomAD v3.1 genome', coverage_v3_genome)]:
+    coverage_meta = []   # parallel list of (gnomad_version, gnomad_data_type)
+    for label, version, data_type, path in [
+        ('gnomAD v4.1 joint', 'v4.1', 'joint',  coverage_v4_joint),
+        ('gnomAD v4.1 exome', 'v4.1', 'exome',  coverage_v4_exome),
+        ('gnomAD v3.1 genome', 'v3.1', 'genome', coverage_v3_genome),
+    ]:
         if path is not None:
             print(f'Loading coverage: {path} ({label}) ...')
             coverage_datasets.append(read_coverage(path))
+            coverage_meta.append((version, data_type))
 
     lcr_data = read_lcr(lcr) if lcr else None
 
@@ -483,6 +512,7 @@ def main(db_url, schema, coverage_v4_joint, coverage_v4_exome, coverage_v3_genom
         if not dry_run:
             with conn.cursor() as cur:
                 cur.execute(_CREATE_TABLE)
+                cur.execute(_ALTER_TABLE)
             conn.commit()
 
         with conn.cursor() as cur:
@@ -506,12 +536,16 @@ def main(db_url, schema, coverage_v4_joint, coverage_v4_exome, coverage_v3_genom
             if debug:
                 print(f'Analyzing {hgvs_cdna}')
 
-            code, msg = _compute_evidence_code(
+            code, msg, dataset_idx = _compute_evidence_code(
                 hgvs_cdna, chr_, pos, ref, alt,
                 flags, allele_count, faf95, faf95_pop,
                 coverage_datasets, lcr_data, config=config, debug=debug,
             )
-            results.append((vrs_digest_row, code, msg, method_name))
+            if dataset_idx is not None:
+                gnomad_version, gnomad_data_type = coverage_meta[dataset_idx]
+            else:
+                gnomad_version, gnomad_data_type = None, None
+            results.append((vrs_digest_row, code, msg, method_name, gnomad_version, gnomad_data_type))
             if dry_run:
                 print(f'  {hgvs_cdna}  →  {code}')
                 print(f'  {msg}')
@@ -526,12 +560,14 @@ def main(db_url, schema, coverage_v4_joint, coverage_v4_exome, coverage_v3_genom
                 psycopg2.extras.execute_values(
                     cur,
                     """INSERT INTO analysis_provisional_evidence_codes
-                           ("VRS_Digest", popfreq_code, popfreq_description, method_name)
+                           ("VRS_Digest", popfreq_code, popfreq_description, method_name,
+                            gnomad_version, gnomad_data_type)
                        VALUES %s
-                       ON CONFLICT ("VRS_Digest") DO UPDATE
+                       ON CONFLICT ("VRS_Digest", method_name) DO UPDATE
                            SET popfreq_code        = EXCLUDED.popfreq_code,
                                popfreq_description = EXCLUDED.popfreq_description,
-                               method_name         = EXCLUDED.method_name""",
+                               gnomad_version      = EXCLUDED.gnomad_version,
+                               gnomad_data_type    = EXCLUDED.gnomad_data_type""",
                     results[i:i + DB_BATCH],
                 )
         conn.commit()
