@@ -780,7 +780,7 @@ class RunPseudonymGenerator(VCFAssemblyTask):
         return luigi.LocalTarget(os.path.join(self.vcf_dir, "run_pseudonym_generator.done"))
 
     def run(self):
-        script = os.path.join(_data_merging_dir, "pseudonym_generator.py")
+        script = os.path.join(_pipeline_dir, "variant_assembly", "pseudonym_generator.py")
         gene_config = os.path.join(_pipeline_dir, 'workflow', 'gene_config_brca_only.txt')
         args = [
             "python", script,
