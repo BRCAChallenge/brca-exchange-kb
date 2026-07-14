@@ -4,11 +4,16 @@ Compare a table across two PostgreSQL schemas.
 
 Usage:
     python compare_table.py --table TABLE --old OLD_SCHEMA --new NEW_SCHEMA --output FILE
+                            [--pk COL [COL ...]]
 
 Stdout: counts of shared, deleted (in old not new), and added (in new not old) rows.
 
 Output file: tab-separated rows for every column difference in shared rows:
     column_name  primary_key  old_value  new_value
+
+Use --pk to override the primary key used for matching rows (useful when the
+table's actual PK is a surrogate id that differs across schemas, e.g. report_gnomad).
+Example: --pk VRS_Digest_id version data_type
 """
 
 import argparse
@@ -95,13 +100,15 @@ def main():
     parser.add_argument('--old',    required=True, help='Old schema name')
     parser.add_argument('--new',    required=True, help='New schema name')
     parser.add_argument('--output', required=True, help='Detailed diff output file')
+    parser.add_argument('--pk', nargs='+', metavar='COL',
+                        help='Override primary key columns used for row matching')
     args = parser.parse_args()
 
     conn = psycopg2.connect(**DB)
     conn.autocommit = True
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        pk_cols = get_pk_columns(cur, args.old, args.table)
+        pk_cols = args.pk if args.pk else get_pk_columns(cur, args.old, args.table)
         all_cols = get_columns(cur, args.old, args.table)
         data_cols = [c for c in all_cols if c not in pk_cols]
 
