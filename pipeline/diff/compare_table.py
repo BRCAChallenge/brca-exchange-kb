@@ -22,7 +22,24 @@ import psycopg2.extras
 DB = dict(host='localhost', dbname='storage.pg', user='postgres', password='postgres')
 
 
+def _resolve_base_table(cur, schema, table):
+    """If table is a view, return the underlying base table name; else return table."""
+    cur.execute("""
+        SELECT view_definition
+        FROM information_schema.views
+        WHERE table_schema = %s AND table_name = %s
+    """, [schema, table])
+    row = cur.fetchone()
+    if row is None:
+        return table
+    # Extract base table name from "SELECT ... FROM schema.tablename"
+    import re
+    m = re.search(r'FROM\s+"?(\w+)"?\."?(\w+)"?', row['view_definition'], re.IGNORECASE)
+    return m.group(2) if m else table
+
+
 def get_pk_columns(cur, schema, table):
+    base = _resolve_base_table(cur, schema, table)
     cur.execute("""
         SELECT kcu.column_name
         FROM information_schema.table_constraints tc
@@ -33,7 +50,7 @@ def get_pk_columns(cur, schema, table):
           AND tc.table_schema    = %s
           AND tc.table_name      = %s
         ORDER BY kcu.ordinal_position
-    """, [schema, table])
+    """, [schema, base])
     cols = [row['column_name'] for row in cur.fetchall()]
     if not cols:
         sys.exit(f"No primary key found for {schema}.{table}")
