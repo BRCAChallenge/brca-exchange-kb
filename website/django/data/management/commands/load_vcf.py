@@ -17,6 +17,7 @@ Sources (in priority order for Variant fields):
 """
 
 import pickle
+import re
 from pathlib import Path
 
 import pysam
@@ -56,6 +57,26 @@ def info_str(rec, key, default='-'):
     return str(val)
 
 
+def flags_str(rec, key='flags', default='-'):
+    """
+    gnomAD's 'flags' INFO field is declared Number='.' in the VCF header, so
+    pysam splits its comma-joined value (e.g. 'lc_lof, os_lof') into a tuple
+    on read (('lc_lof', ' os_lof'), with the leading space from ', ' baked
+    into the second token). Rejoin with ', ' rather than info_str's default
+    '|' so Flags stays comma-separated end to end.
+    """
+    try:
+        val = rec.info.get(key)
+    except (KeyError, ValueError):
+        return default
+    if val is None:
+        return default
+    if isinstance(val, (tuple, list)):
+        joined = ', '.join(str(v).strip() for v in val if str(v).strip())
+        return joined if joined else default
+    return str(val)
+
+
 def alt_digest(rec):
     ids = rec.info.get('VRS_Allele_IDs')
     if ids and len(ids) >= 2:
@@ -68,6 +89,55 @@ def alt_vrs_id(rec):
     if ids and len(ids) >= 2:
         return ids[1]
     return None
+
+
+def populations_by_stat_infix(rec, infix, exclude=frozenset()):
+    """
+    Build {population: {ac, an, af, ac_hom}} from INFO fields named
+    AC_<infix>_<population> / AN_<infix>_<population> / AF_<infix>_<population> /
+    nhomalt_<infix>_<population> (infix may be '' when the VCF has no data-type
+    infix, e.g. an exome-only release). Used for gnomAD v4/v4.1 joint and exome.
+    """
+    prefix = f'AC_{infix}_' if infix else 'AC_'
+    pattern = re.compile(rf'^{re.escape(prefix)}([a-z]+)$')
+    pops = {}
+    for key in rec.info.keys():
+        m = pattern.match(key)
+        if not m or m.group(1) in exclude:
+            continue
+        pop = m.group(1)
+        an_key  = f'AN_{infix}_{pop}'      if infix else f'AN_{pop}'
+        af_key  = f'AF_{infix}_{pop}'      if infix else f'AF_{pop}'
+        hom_key = f'nhomalt_{infix}_{pop}' if infix else f'nhomalt_{pop}'
+        pops[pop] = {
+            'ac':     info_str(rec, key),
+            'an':     info_str(rec, an_key),
+            'af':     info_str(rec, af_key),
+            'ac_hom': info_str(rec, hom_key),
+        }
+    return pops
+
+
+def populations_by_dataset(rec, dataset, exclude=frozenset()):
+    """
+    Build {population: {ac, an, af, ac_hom}} from INFO fields named
+    <dataset>_<POPULATION>_ac / _an / _af / _ac_hom. Used for gnomAD v2/v3,
+    where the population code prefixes the stat rather than the reverse.
+    """
+    pattern = re.compile(rf'^{dataset}_([A-Z]+)_ac$')
+    pops = {}
+    for key in rec.info.keys():
+        m = pattern.match(key)
+        if not m or m.group(1) in exclude:
+            continue
+        pop_upper = m.group(1)
+        pops[pop_upper.lower()] = {
+            'ac':     info_str(rec, f'{dataset}_{pop_upper}_ac'),
+            'an':     info_str(rec, f'{dataset}_{pop_upper}_an'),
+            'af':     info_str(rec, f'{dataset}_{pop_upper}_af'),
+            'ac_hom': info_str(rec, f'{dataset}_{pop_upper}_ac_hom'),
+        }
+    return pops
 
 
 def ucsc_url(chrom, pos):
@@ -440,7 +510,7 @@ class Command(BaseCommand):
                 data_type=data_type,
                 defaults={
                     'Variant_id':              info_str(rec, variant_id_key),
-                    'Flags':                   info_str(rec, 'flags'),
+                    'Flags':                   flags_str(rec),
                     'coverage':                info_str(rec, coverage_key) if coverage_key else '-',
                     'Allele_count':            info_str(rec, ac_key),
                     'Allele_number':           info_str(rec, an_key),
@@ -456,14 +526,7 @@ class Command(BaseCommand):
 
     def _load_gnomad_v2(self, vcf_path, pkl):
         def populations(rec):
-            return {
-                'genome_ac': info_str(rec, 'genome_ac'),
-                'genome_an': info_str(rec, 'genome_an'),
-                'genome_af': info_str(rec, 'genome_af'),
-                'exome_ac':  info_str(rec, 'exome_ac'),
-                'exome_an':  info_str(rec, 'exome_an'),
-                'exome_af':  info_str(rec, 'exome_af'),
-            }
+            return populations_by_dataset(rec, 'genome', exclude={'FEMALE', 'MALE'})
         return self._load_gnomad(vcf_path, pkl, version='v2', data_type='exome',
             ac_key='genome_ac', an_key='genome_an', af_key='genome_af',
             variant_id_key='variantId',
@@ -473,12 +536,7 @@ class Command(BaseCommand):
 
     def _load_gnomad_v3(self, vcf_path, pkl):
         def populations(rec):
-            return {
-                'genome_ac':     info_str(rec, 'genome_ac'),
-                'genome_an':     info_str(rec, 'genome_an'),
-                'genome_af':     info_str(rec, 'genome_af'),
-                'genome_ac_hom': info_str(rec, 'genome_ac_hom'),
-            }
+            return populations_by_dataset(rec, 'genome', exclude={'FEMALE', 'MALE'})
         return self._load_gnomad(vcf_path, pkl, version='v3', data_type='genome',
             ac_key='genome_ac', an_key='genome_an', af_key='genome_af',
             variant_id_key='variant_id',
@@ -488,18 +546,7 @@ class Command(BaseCommand):
 
     def _load_gnomad_v4(self, vcf_path, pkl):
         def populations(rec):
-            return {
-                'joint_ac':      info_str(rec, 'AC_joint'),
-                'joint_an':      info_str(rec, 'AN_joint'),
-                'joint_af':      info_str(rec, 'AF_joint'),
-                'genome_ac':     info_str(rec, 'AC_genomes'),
-                'genome_an':     info_str(rec, 'AN_genomes'),
-                'genome_af':     info_str(rec, 'AF_genomes'),
-                'exome_ac':      info_str(rec, 'AC_exomes'),
-                'exome_an':      info_str(rec, 'AN_exomes'),
-                'exome_af':      info_str(rec, 'AF_exomes'),
-                'nhomalt_joint': info_str(rec, 'nhomalt_joint'),
-            }
+            return populations_by_stat_infix(rec, 'joint', exclude={'raw'})
         return self._load_gnomad(vcf_path, pkl, version='v4', data_type='joint',
             ac_key='AC_joint', an_key='AN_joint', af_key='AF_joint',
             variant_id_key='variant_id',
@@ -509,18 +556,7 @@ class Command(BaseCommand):
 
     def _load_gnomad_v41_joint(self, vcf_path, pkl):
         def populations(rec):
-            return {
-                'joint_ac':      info_str(rec, 'AC_joint'),
-                'joint_an':      info_str(rec, 'AN_joint'),
-                'joint_af':      info_str(rec, 'AF_joint'),
-                'genome_ac':     info_str(rec, 'AC_genomes'),
-                'genome_an':     info_str(rec, 'AN_genomes'),
-                'genome_af':     info_str(rec, 'AF_genomes'),
-                'exome_ac':      info_str(rec, 'AC_exomes'),
-                'exome_an':      info_str(rec, 'AN_exomes'),
-                'exome_af':      info_str(rec, 'AF_exomes'),
-                'nhomalt_joint': info_str(rec, 'nhomalt_joint'),
-            }
+            return populations_by_stat_infix(rec, 'joint', exclude={'raw'})
         return self._load_gnomad(vcf_path, pkl, version='v4.1', data_type='joint',
             ac_key='AC_joint', an_key='AN_joint', af_key='AF_joint',
             variant_id_key='variant_id',
@@ -530,12 +566,7 @@ class Command(BaseCommand):
 
     def _load_gnomad_v41_exome(self, vcf_path, pkl):
         def populations(rec):
-            return {
-                'exome_ac':  info_str(rec, 'AC'),
-                'exome_an':  info_str(rec, 'AN'),
-                'exome_af':  info_str(rec, 'AF'),
-                'nhomalt':   info_str(rec, 'nhomalt'),
-            }
+            return populations_by_stat_infix(rec, '', exclude={'raw', 'grpmax'})
         return self._load_gnomad(vcf_path, pkl, version='v4.1', data_type='exome',
             ac_key='AC', an_key='AN', af_key='AF',
             variant_id_key='variant_id',

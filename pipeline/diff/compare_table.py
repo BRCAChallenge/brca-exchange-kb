@@ -14,6 +14,10 @@ Output file: tab-separated rows for every column difference in shared rows:
 Use --pk to override the primary key used for matching rows (useful when the
 table's actual PK is a surrogate id that differs across schemas, e.g. report_gnomad).
 Example: --pk VRS_Digest_id version data_type
+
+Use --omit-columns to exclude columns from the diff (e.g. a surrogate id column
+that legitimately differs across schemas and would otherwise show up as noise).
+Example: --omit-columns id
 """
 
 import argparse
@@ -102,6 +106,8 @@ def main():
     parser.add_argument('--output', required=True, help='Detailed diff output file')
     parser.add_argument('--pk', nargs='+', metavar='COL',
                         help='Override primary key columns used for row matching')
+    parser.add_argument('--omit-columns', nargs='+', metavar='COL', default=[],
+                        help='Columns to exclude from the diff')
     args = parser.parse_args()
 
     conn = psycopg2.connect(**DB)
@@ -110,7 +116,7 @@ def main():
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         pk_cols = args.pk if args.pk else get_pk_columns(cur, args.old, args.table)
         all_cols = get_columns(cur, args.old, args.table)
-        data_cols = [c for c in all_cols if c not in pk_cols]
+        data_cols = [c for c in all_cols if c not in pk_cols and c not in args.omit_columns]
 
         pk_join = join_cond(pk_cols, 'o', 'n')
         old_pk_null = ' AND '.join(f'o."{c}" IS NULL' for c in pk_cols)

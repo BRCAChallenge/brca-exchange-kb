@@ -8,9 +8,14 @@ Usage:
 Runs compare_table.py for each table and writes output files to DIR:
     variant_gnomad.detail.txt
     report_gnomad.detail.txt
+    summary.txt
 
 report_gnomad uses (VRS_Digest_id, version, data_type) as the natural key for
-matching rows, since its surrogate id column differs across schemas.
+matching rows, since its surrogate id column differs across schemas. That same
+id column is also omitted from the diff itself, since it always differs.
+
+summary.txt collects, for each table, the stdout (shared/deleted/added counts
+and the differing-values line) of the compare_table.py run for that table.
 """
 
 import argparse
@@ -22,26 +27,33 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _COMPARE = os.path.join(_SCRIPT_DIR, 'compare_table.py')
 
 TABLES = [
-    dict(table='variant_gnomad', pk=None),
-    dict(table='report_gnomad',  pk=['VRS_Digest_id', 'version', 'data_type']),
+    dict(table='variant_gnomad', pk=None, omit=None),
+    dict(table='report_gnomad',  pk=['VRS_Digest_id', 'version', 'data_type'], omit=['id']),
 ]
 
 
 def run(old, new, output_dir):
     os.makedirs(output_dir, exist_ok=True)
     python = sys.executable
-    for spec in TABLES:
-        table = spec['table']
-        output = os.path.join(output_dir, f'{table}.detail.txt')
-        cmd = [python, _COMPARE,
-               '--table', table,
-               '--old', old,
-               '--new', new,
-               '--output', output]
-        if spec['pk']:
-            cmd += ['--pk'] + spec['pk']
-        print(f'\n=== {table} ===')
-        subprocess.run(cmd, check=True)
+    summary_path = os.path.join(output_dir, 'summary.txt')
+    with open(summary_path, 'w') as summary:
+        for spec in TABLES:
+            table = spec['table']
+            output = os.path.join(output_dir, f'{table}.detail.txt')
+            cmd = [python, _COMPARE,
+                   '--table', table,
+                   '--old', old,
+                   '--new', new,
+                   '--output', output]
+            if spec['pk']:
+                cmd += ['--pk'] + spec['pk']
+            if spec['omit']:
+                cmd += ['--omit-columns'] + spec['omit']
+            print(f'\n=== {table} ===')
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+            print(result.stdout, end='')
+            summary.write(f'=== {table} ===\n{result.stdout}\n')
+    print(f'\nSummary written to {summary_path}')
 
 
 def main():

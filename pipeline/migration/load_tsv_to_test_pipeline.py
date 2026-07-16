@@ -57,6 +57,28 @@ def nullable(row, col):
     return val if val and val != '-' else None
 
 
+GNOMAD_V2_GENOME_POPS = ['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'SAS']
+GNOMADV3_GENOME_POPS = ['AFR', 'AMI', 'AMR', 'ASJ', 'EAS', 'FIN', 'MID', 'NFE', 'OTH', 'SAS']
+
+
+def population_breakdown(row, dataset, source_suffix, pops):
+    """
+    Build {population: {ac, an, af, ac_hom}} from TSV columns named
+    Allele_count_<dataset>_<POP>_<source_suffix> / Allele_number_.../ Allele_frequency_.../
+    Allele_count_hom_<dataset>_<POP>_<source_suffix>. Matches the shape produced by
+    load_vcf.py's populations_by_dataset() for the same gnomAD versions.
+    """
+    return {
+        pop.lower(): {
+            'ac':     f(row, f'Allele_count_{dataset}_{pop}_{source_suffix}'),
+            'an':     f(row, f'Allele_number_{dataset}_{pop}_{source_suffix}'),
+            'af':     f(row, f'Allele_frequency_{dataset}_{pop}_{source_suffix}'),
+            'ac_hom': f(row, f'Allele_count_hom_{dataset}_{pop}_{source_suffix}'),
+        }
+        for pop in pops
+    }
+
+
 def ucsc(chrom, pos):
     c = chrom if chrom.startswith('chr') else f'chr{chrom}'
     return f'https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position={c}:{pos}-{pos}'
@@ -224,14 +246,7 @@ def load_report_row(row, digest, counts):
         counts['report_lovd'] += 1
 
     elif source == 'GnomAD':
-        pops = {
-            'genome_ac': f(row, 'Allele_count_genome_GnomAD'),
-            'genome_an': f(row, 'Allele_number_genome_GnomAD'),
-            'genome_af': f(row, 'Allele_frequency_genome_GnomAD'),
-            'exome_ac':  f(row, 'Allele_count_exome_GnomAD'),
-            'exome_an':  f(row, 'Allele_number_exome_GnomAD'),
-            'exome_af':  f(row, 'Allele_frequency_exome_GnomAD'),
-        }
+        pops = population_breakdown(row, 'genome', 'GnomAD', GNOMAD_V2_GENOME_POPS)
         with connections[DB].cursor() as cur:
             cur.execute(
                 '''INSERT INTO report_gnomad
@@ -251,12 +266,7 @@ def load_report_row(row, digest, counts):
         counts['report_gnomad'] += 1
 
     elif source == 'GnomADv3':
-        pops = {
-            'genome_ac':     f(row, 'Allele_count_genome_GnomADv3'),
-            'genome_an':     f(row, 'Allele_number_genome_GnomADv3'),
-            'genome_af':     f(row, 'Allele_frequency_genome_GnomADv3'),
-            'genome_ac_hom': f(row, 'Allele_count_hom_genome_AFR_GnomADv3'),
-        }
+        pops = population_breakdown(row, 'genome', 'GnomADv3', GNOMADV3_GENOME_POPS)
         with connections[DB].cursor() as cur:
             cur.execute(
                 '''INSERT INTO report_gnomad
