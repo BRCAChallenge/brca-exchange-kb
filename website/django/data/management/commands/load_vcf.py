@@ -46,24 +46,14 @@ DB = 'pipeline'
 # ---------------------------------------------------------------------------
 
 def info_str(rec, key, default='-'):
-    try:
-        val = rec.info.get(key)
-    except (KeyError, ValueError):
-        return default
-    if val is None:
-        return default
-    if isinstance(val, (tuple, list)):
-        return '|'.join(str(v) for v in val)
-    return str(val)
-
-
-def flags_str(rec, key='flags', default='-'):
     """
-    gnomAD's 'flags' INFO field is declared Number='.' in the VCF header, so
-    pysam splits its comma-joined value (e.g. 'lc_lof, os_lof') into a tuple
-    on read (('lc_lof', ' os_lof'), with the leading space from ', ' baked
-    into the second token). Rejoin with ', ' rather than info_str's default
-    '|' so Flags stays comma-separated end to end.
+    Any INFO field declared Number='.' in these VCF headers (which is all of
+    them) gets split by pysam on every literal comma in its value, e.g.
+    'lc_lof, os_lof' -> ('lc_lof', ' os_lof') or free text like
+    'Burke (Brisbane,AU)' -> ('...Brisbane', 'AU)...'). Rejoining with a bare
+    ',' (no added/stripped whitespace) exactly reverses str.split(','),
+    whether or not the original had a space after the comma, instead of
+    corrupting the text.
     """
     try:
         val = rec.info.get(key)
@@ -72,8 +62,10 @@ def flags_str(rec, key='flags', default='-'):
     if val is None:
         return default
     if isinstance(val, (tuple, list)):
-        joined = ', '.join(str(v).strip() for v in val if str(v).strip())
-        return joined if joined else default
+        # A bare INFO key with no '=value' (e.g. 'frequency' alone in the
+        # record) parses as an empty tuple rather than None; treat that the
+        # same as absent.
+        return ','.join(str(v) for v in val) if val else default
     return str(val)
 
 
@@ -398,8 +390,6 @@ class Command(BaseCommand):
                 },
             )
 
-            remarks = rec.info.get('remarks')
-            classification = rec.info.get('classification')
             Report_in_LOVD.objects.using(DB).create(
                 VRS_Digest=lovd_rec,
                 Variant_frequency=info_str(rec, 'frequency'),
@@ -412,8 +402,8 @@ class Command(BaseCommand):
                 Created_date=info_str(rec, 'created_date'),
                 Edited_date=info_str(rec, 'edited_date'),
                 DBID=dbid,
-                Remarks='|'.join(str(v) for v in remarks) if isinstance(remarks, tuple) else (remarks or '-'),
-                Classification='|'.join(str(v) for v in classification) if isinstance(classification, tuple) else (classification or '-'),
+                Remarks=info_str(rec, 'remarks'),
+                Classification=info_str(rec, 'classification'),
                 Submission_ID=info_str(rec, 'submission_id'),
             )
             n += 1
@@ -469,7 +459,7 @@ class Command(BaseCommand):
                     'Co_Occurrence_LR':          info_str(rec, 'co_occurrence_lr'),
                     'Case_Control_LR':           info_str(rec, 'case_control_lr') or None,
                     'Product_Of_LRs':            info_str(rec, 'product_of_lrs'),
-                    'Comments':                  info_str(rec, 'comments'),
+                    'Comments':                  info_str(rec, 'key_observational_reference'),
                 },
             )
             n += 1
@@ -510,7 +500,7 @@ class Command(BaseCommand):
                 data_type=data_type,
                 defaults={
                     'Variant_id':              info_str(rec, variant_id_key),
-                    'Flags':                   flags_str(rec),
+                    'Flags':                   info_str(rec, 'flags'),
                     'coverage':                info_str(rec, coverage_key) if coverage_key else '-',
                     'Allele_count':            info_str(rec, ac_key),
                     'Allele_number':           info_str(rec, an_key),
@@ -530,7 +520,7 @@ class Command(BaseCommand):
         return self._load_gnomad(vcf_path, pkl, version='v2', data_type='exome',
             ac_key='genome_ac', an_key='genome_an', af_key='genome_af',
             variant_id_key='variantId',
-            faf_key='popmax_genome', faf_pop_key='popmax_population_genome',
+            faf_key='genome_popmax', faf_pop_key='genome_popmax_population',
             build_populations=populations,
         )
 
@@ -635,7 +625,7 @@ class Command(BaseCommand):
                 if val is None or (isinstance(val, tuple) and len(val) == 0):
                     continue
                 if isinstance(val, tuple):
-                    data[key] = val[0] if len(val) == 1 else '|'.join(str(v) for v in val)
+                    data[key] = val[0] if len(val) == 1 else ','.join(str(v) for v in val)
                 else:
                     data[key] = str(val)
 

@@ -265,7 +265,7 @@ class classification:
             for name in trait.iter("Name"):
                 ev = name.find("ElementValue")
                 if ev.get("Type") == "Preferred":
-                    self.condition_category = ev.text
+                    self.condition_value = ev.text
                 for xref in trait.iter("XRef"):
                     if not re.search("Genetic Testing Registry", xref.get("DB")):
                         xref_string = xref.get("DB") + "_" + xref.get("ID")
@@ -332,10 +332,10 @@ class clinicalAssertion:
                 for attr in od.iter("Attribute"):
                     if attr.get("Type") == 'Description':
                         newDescription = textIfPresent(od, "Attribute")
-                    else:
-                        newDescription = "None"
-                    if not newDescription in self.description:
-                        self.description.append(newDescription)
+                        if not newDescription in self.description:
+                            self.description.append(newDescription)
+        if not self.description:
+            self.description.append("not_provided")
 
 
 

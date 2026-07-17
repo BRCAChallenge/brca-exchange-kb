@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Compare gnomAD-related tables (variant_gnomad and report_gnomad) across two schemas.
+Compare gnomAD-, LOVD-, ClinVar-, and ENIGMA-related tables across two schemas.
 
 Usage:
     python compare_all_tables.py --old OLD_SCHEMA --new NEW_SCHEMA --output-dir DIR
@@ -8,11 +8,31 @@ Usage:
 Runs compare_table.py for each table and writes output files to DIR:
     variant_gnomad.detail.txt
     report_gnomad.detail.txt
+    variant_lovd.detail.txt
+    report_lovd.detail.txt
+    variant_clinvar.detail.txt
+    report_clinvar.detail.txt
+    variant_enigma.detail.txt
+    variant_exlovd.detail.txt
     summary.txt
 
 report_gnomad uses (VRS_Digest_id, version, data_type) as the natural key for
 matching rows, since its surrogate id column differs across schemas. That same
 id column is also omitted from the diff itself, since it always differs.
+
+report_lovd uses (VRS_Digest_id, Submission_ID) as the natural key, for the
+same reason (surrogate id column differs across schemas); that id column is
+likewise omitted from the diff.
+
+report_clinvar uses (VRS_Digest_id, SCV) as the natural key, for the same
+reason; SCV (the ClinVar submission accession) is unique on its own, but
+VRS_Digest_id is included for consistency with the other report_* tables.
+That surrogate id column is likewise omitted from the diff.
+
+variant_enigma (despite the name, a report_* table with a surrogate id: one
+ENIGMA row per variant in practice, via a plain ForeignKey rather than
+OneToOne) uses VRS_Digest_id alone as the natural key, since it's unique on
+its own; the id column is likewise omitted from the diff.
 
 summary.txt collects, for each table, the stdout (shared/deleted/added counts
 and the differing-values line) of the compare_table.py run for that table.
@@ -29,6 +49,12 @@ _COMPARE = os.path.join(_SCRIPT_DIR, 'compare_table.py')
 TABLES = [
     dict(table='variant_gnomad', pk=None, omit=None),
     dict(table='report_gnomad',  pk=['VRS_Digest_id', 'version', 'data_type'], omit=['id']),
+    dict(table='variant_lovd',   pk=None, omit=None),
+    dict(table='report_lovd',    pk=['VRS_Digest_id', 'Submission_ID'], omit=['id']),
+    dict(table='variant_clinvar', pk=None, omit=None),
+    dict(table='report_clinvar',  pk=['VRS_Digest_id', 'SCV'], omit=['id']),
+    dict(table='variant_enigma',  pk=['VRS_Digest_id'], omit=['id']),
+    dict(table='variant_exlovd',  pk=None, omit=None),
 ]
 
 
