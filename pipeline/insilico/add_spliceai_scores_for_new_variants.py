@@ -97,7 +97,16 @@ def main():
     scored_vcf = args.temp_dir + "/scored_variants.vcf"
     unscored_vcf = args.temp_dir + "/unscored_variants.vcf"
     newly_scored_vcf = args.temp_dir + "/newly_score_variants.vcf"
-    shutil.copy2(args.scored_variants_vcf, scored_vcf)
+    if args.scored_variants_vcf:
+        shutil.copy2(args.scored_variants_vcf, scored_vcf)
+    else:
+        # No previous release to seed from (e.g. a from-scratch run): start
+        # from an empty "already scored" VCF, so every variant in
+        # all_variants_vcf is treated as unscored and run through spliceAI.
+        reader = pysam.VariantFile(args.all_variants_vcf)
+        seed = pysam.VariantFile(scored_vcf, 'w', header=reader.header)
+        seed.close()
+        reader.close()
     while not all_variants_scored:
         #
         # Build a VCF file of unscored variants up to the max batch size,

@@ -230,6 +230,32 @@ run-variant-assembly: ## Run the VariantAssembly luigi task locally (no Docker)
 		--PipelineParams-output-dir $(VCF_ASSEMBLY_OUT_DIR) \
 		--local-scheduler
 
+VCF_ANALYSIS_MODULE ?= workflow.variant_analysis
+VCF_ANALYSIS_ROOT_TASK ?= workflow.variant_analysis.VariantAnalysis
+VCF_ANALYSIS_VEP_SERVER_URL ?= http://localhost:8888
+VCF_ANALYSIS_GENOME_FA ?= /data/references/hg38.fa
+# Optional: path to the SpliceAI-scored VCF from the previous release, to
+# avoid rescoring already-scored variants. Leave unset for a from-scratch
+# run (e.g. no previous release exists yet) to score every variant.
+VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF ?=
+ifneq ($(strip $(VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF)),)
+VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF_FLAG = --GenerateSpliceAIScores-previous-spliceai-vcf $(VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF)
+endif
+
+run-variant-analysis: ## Run the full pipeline (VariantAssembly + VariantAnalysis: VEP/BayesDel/SpliceAI/priors/popfreq) locally (no Docker)
+	HGVS_SEQREPO_DIR=$(VCF_ASSEMBLY_SEQ_REPO_DIR) \
+	UTA_DB_URL=$(VCF_ASSEMBLY_UTA_DB_URL) \
+	PYTHONPATH=/data/new_schema/code/pipeline \
+	python -m luigi --module $(VCF_ANALYSIS_MODULE) $(VCF_ANALYSIS_ROOT_TASK) \
+		--PipelineParams-gene-config-path $(VCF_ASSEMBLY_GENE_CONFIG) \
+		--PipelineParams-seq-repo-dir $(VCF_ASSEMBLY_SEQ_REPO_DIR) \
+		--PipelineParams-file-parent-dir $(VCF_ASSEMBLY_OUT_DIR) \
+		--PipelineParams-output-dir $(VCF_ASSEMBLY_OUT_DIR) \
+		--AnalyzeVEP-vep-server-url $(VCF_ANALYSIS_VEP_SERVER_URL) \
+		--GenerateSpliceAIScores-genome-fa $(VCF_ANALYSIS_GENOME_FA) \
+		$(VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF_FLAG) \
+		--local-scheduler
+
 clean-pyc: ## remove Python file artifacts
 	find . -name '*.pyc' -exec rm -f {} +
 	find . -name '*.pyo' -exec rm -f {} +

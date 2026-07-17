@@ -94,8 +94,10 @@ class GenerateSpliceAIScores(VCFAssemblyTask):
 
     genome_fa = luigi.Parameter(
         description='Path to hg38.fa reference genome')
-    previous_spliceai_vcf = luigi.Parameter(
-        description='Path to SpliceAI-scored VCF from the previous release')
+    previous_spliceai_vcf = luigi.OptionalParameter(
+        default=None,
+        description='Path to SpliceAI-scored VCF from the previous release; '
+                     'omit for a from-scratch run to score all variants')
     spliceai_batch_size = luigi.IntParameter(
         default=1000,
         description='Max variants per SpliceAI batch')
@@ -118,9 +120,10 @@ class GenerateSpliceAIScores(VCFAssemblyTask):
             '-f', self.genome_fa,
             '-g', 'grch38',
             '-o', self.output().path,
-            '-s', self.previous_spliceai_vcf,
             '-t', tmp_dir,
         ]
+        if self.previous_spliceai_vcf:
+            args += ['-s', self.previous_spliceai_vcf]
         self._run_process_with_pipeline_path(args)
 
 
