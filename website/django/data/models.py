@@ -3,6 +3,57 @@ from django.db.models import JSONField
 from django.contrib.postgres.fields import ArrayField
 from postgres_copy import CopyManager
 
+
+class LegacyJSONField(JSONField):
+    """
+    Referenced by migrations 0009_variantdiff.py and 0027_reportdiff.py, whose
+    VariantDiff/ReportDiff models were dropped from the schema without a
+    corresponding migration. Kept only so the migration graph still loads;
+    not used by any current model.
+    """
+    def from_db_value(self, value, expression, connection):
+        # psycopg3 already deserializes JSONB to Python objects, so handle both
+        # str and already-deserialized values.
+        if value is None:
+            return value
+        if isinstance(value, str):
+            return super().from_db_value(value, expression, connection)
+        return value
+
+
+class ChangeType(models.Model):
+    """
+    Referenced by 0003_populate_database.py, whose actual operations are
+    disabled (operations = []) — kept only so the migration graph still
+    loads. Not used by any current model; not migration-managed.
+    """
+    name = models.TextField()
+
+    class Meta:
+        managed = False
+
+
+class MupitStructure(models.Model):
+    """
+    Referenced only via data/utilities.py's module-level import (used by
+    functions unrelated to migration 0025's actual RunPython operation).
+    Kept only so that import succeeds. Not migration-managed.
+    """
+    name = models.TextField()
+
+    class Meta:
+        managed = False
+
+
+class CurrentVariant(models.Model):
+    """
+    Referenced only via data/utilities.py's module-level import (used by
+    functions unrelated to migration 0025's actual RunPython operation).
+    Kept only so that import succeeds. Not migration-managed.
+    """
+    class Meta:
+        managed = False
+
 # ------------------------------------------------------------------------
 # --- Base models
 # ------------------------------------------------------------------------
@@ -251,6 +302,8 @@ class Paper(models.Model):
     Title = models.TextField()
     Author = models.TextField()
     Year = models.TextField()
+    Journal = models.TextField()
+    DOI = models.TextField()
 
     class Meta:
         db_table = "data_paper"
@@ -259,6 +312,8 @@ class Paper(models.Model):
 class Variant_in_Paper(models.Model):
     VRS_Digest = models.ForeignKey(Variant, on_delete=models.CASCADE)
     Paper = models.ForeignKey(Paper, on_delete=models.CASCADE)
+    mentions = ArrayField(models.TextField())
+    variant_mentioned_as = ArrayField(models.TextField())
 
     class Meta:
         db_table = "data_variantpaper"

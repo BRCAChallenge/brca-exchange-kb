@@ -1,3 +1,4 @@
+import csv
 import datetime
 import os
 import re
@@ -9,6 +10,7 @@ from luigi.util import requires
 
 luigi.auto_namespace(scope=__name__)
 
+from common import config as brca_config
 from workflow import pipeline_utils
 from workflow.pipeline_common import PipelineParams
 
@@ -49,6 +51,7 @@ class VCFAssemblyTask(luigi.Task):
         self.assays_dir       = create(file_parent_dir + "/functional_assays")
         self.gnomad_file_dir  = create(file_parent_dir + "/gnomAD")
         self.vcf_dir          = create(file_parent_dir + "/vcf")
+        self.varaico_dir      = create(file_parent_dir + "/varaico")
 
     def on_failure(self, exception):
         def _rename_file(path):
@@ -97,7 +100,7 @@ class VCFAssemblyTask(luigi.Task):
         for row in data:
             if not row.strip():
                 continue
-            cols = row.split('\t')
+            cols = row.rstrip('\n').split('\t')
             if len(cols) > 7 and cols[7] not in ('.', ''):
                 for field in cols[7].split(';'):
                     key = field.split('=')[0]
@@ -719,6 +722,160 @@ class LoadVCFsToDatabase(VCFAssemblyTask):
 
 
 ###############################################
+#         VARAICO LITERATURE MINING           #
+###############################################
+
+# NOTE: requires `bigBedToBed` in PATH, same as `bedToBigBed` in genomeBrowserTrack/ — download
+# from https://hgdownload.soe.ucsc.edu/admin/exe/ . It supports remote random-access queries via
+# -chrom/-start/-end against a URL, so the ~475MB varaico.bb is never downloaded in full.
+_varaico_bb_url = "https://hgdownload.soe.ucsc.edu/gbdb/hg38/bbi/varaico.bb"
+
+
+class ExtractVaraicoBRCARegions(VCFAssemblyTask):
+    """Extract BRCA1/BRCA2 rows from the UCSC varaico bigBed track via remote random access."""
+
+    def output(self):
+        return luigi.LocalTarget(os.path.join(self.varaico_dir, "varaico_brca_raw.tsv"))
+
+    def run(self):
+        gene_config = brca_config.load_config(
+            os.path.join(_pipeline_dir, 'workflow', 'gene_config_brca_only.txt'))
+
+        header_written = False
+        with open(self.output().path, "w") as out_f:
+            for _, gene in gene_config.iterrows():
+                chrom = f"chr{gene['chr']}"
+                tmp_path = self.output().path + f".{chrom}.tmp"
+                args = [
+                    "bigBedToBed",
+                    f"-chrom={chrom}",
+                    f"-start={int(gene['start_hg38'])}",
+                    f"-end={int(gene['end_hg38'])}",
+                    "-tsv",
+                    _varaico_bb_url,
+                    tmp_path,
+                ]
+                pipeline_utils.run_process(args)
+                with open(tmp_path) as tmp_f:
+                    lines = tmp_f.readlines()
+                os.remove(tmp_path)
+                if not lines:
+                    continue
+                if not header_written:
+                    out_f.write(lines[0])
+                    header_written = True
+                out_f.writelines(lines[1:])
+        pipeline_utils.check_file_for_contents(self.output().path)
+
+
+@requires(ExtractVaraicoBRCARegions)
+class FilterVaraicoToGeneBoundaries(VCFAssemblyTask):
+    """Re-validate gene-boundary containment and build a minimal VCF of the distinct variants."""
+
+    def output(self):
+        return {
+            "tsv": luigi.LocalTarget(os.path.join(self.varaico_dir, "varaico_mentions_filtered.tsv")),
+            "vcf": luigi.LocalTarget(os.path.join(self.varaico_dir, "varaico_variants.vcf")),
+        }
+
+    def run(self):
+        gene_config = brca_config.load_config(
+            os.path.join(_pipeline_dir, 'workflow', 'gene_config_brca_only.txt'))
+        boundaries = {
+            f"chr{row['chr']}": (int(row['start_hg38']), int(row['end_hg38']))
+            for _, row in gene_config.iterrows()
+        }
+
+        with open(self.input().path, newline='') as in_f:
+            reader = csv.DictReader(in_f, delimiter='\t', quoting=csv.QUOTE_NONE)
+            fieldnames = reader.fieldnames
+            kept_rows = []
+            for row in reader:
+                bounds = boundaries.get(row['chrom'])
+                if bounds is None:
+                    continue
+                gene_start, gene_end = bounds
+                if int(row['chromStart']) >= gene_start and int(row['chromEnd']) <= gene_end:
+                    kept_rows.append(row)
+
+        with open(self.output()["tsv"].path, "w", newline='') as out_f:
+            writer = csv.DictWriter(out_f, fieldnames=fieldnames, delimiter='\t')
+            writer.writeheader()
+            writer.writerows(kept_rows)
+
+        # Distinct (chrom, pos, ref, alt) combos only — VRS digests don't depend on which
+        # paper/snippet a row came from, and the same variant is frequently mentioned by
+        # multiple papers. ID = "chrom:pos:ref:alt" so the DB loader can recompute the same
+        # key from each raw row without a separate lookup file.
+        distinct_variants = {}
+        for row in kept_rows:
+            pos = int(row['chromStart']) + 1
+            key = f"{row['chrom']}:{pos}:{row['ref']}:{row['alt']}"
+            distinct_variants[key] = (row['chrom'], pos, row['ref'], row['alt'])
+
+        varaico_contigs = sorted({v[0] for v in distinct_variants.values()})
+        with open(self.output()["vcf"].path, "w") as vcf_f:
+            vcf_f.write("##fileformat=VCFv4.2\n")
+            for contig in varaico_contigs:
+                vcf_f.write(f"##contig=<ID={contig},length={_GRCh38_CONTIGS[contig]}>\n")
+            vcf_f.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
+            for key, (chrom, pos, ref, alt) in sorted(
+                    distinct_variants.items(), key=lambda kv: (kv[1][0], kv[1][1])):
+                vcf_f.write(f"{chrom}\t{pos}\t{key}\t{ref}\t{alt}\t.\t.\t.\n")
+
+
+@requires(FilterVaraicoToGeneBoundaries)
+class SortVaraicoVCF(VCFAssemblyTask):
+    def output(self):
+        return luigi.LocalTarget(os.path.join(self.varaico_dir, "varaico_variants.sorted.vcf"))
+
+    def run(self):
+        args = ["vcf-sort", self.input()["vcf"].path]
+        pipeline_utils.run_process(args, redirect_stdout_path=self.output().path)
+        pipeline_utils.check_file_for_contents(self.output().path)
+
+
+@requires(SortVaraicoVCF)
+class VRSAnnotateVaraico(VCFAssemblyTask):
+    def output(self):
+        return {
+            "vcf": luigi.LocalTarget(f"{self.varaico_dir}/varaico_variants.sorted.vcf.gz"),
+            "pkl": luigi.LocalTarget(f"{self.varaico_dir}/varaico_variants.sorted.dicts.pkl"),
+        }
+
+    def run(self):
+        self._vrs_annotate(self.input().path,
+                           self.output()["vcf"].path,
+                           self.output()["pkl"].path)
+
+
+@requires(VRSAnnotateVaraico, FilterVaraicoToGeneBoundaries, LoadVCFsToDatabase)
+class LoadVaraicoPapersToDatabase(VCFAssemblyTask):
+    """Call the add_varaico_papers Django management command to populate paper /
+    variant_in_paper for varaico-mined BRCA1/BRCA2 variants already present in `variant`.
+    Depends on LoadVCFsToDatabase for ordering only (variant must already be populated)."""
+
+    django_dir = luigi.Parameter(
+        default='/data/new_schema/code/website/django',
+        description='Directory containing Django manage.py')
+
+    def output(self):
+        return luigi.LocalTarget(os.path.join(self.varaico_dir, "load_varaico_papers_to_db.done"))
+
+    def run(self):
+        vrs_in, filter_in, _ = self.input()
+        args = [
+            "python", "manage.py", "add_varaico_papers", "--skip-checks",
+            "--raw-tsv",           filter_in["tsv"].path,
+            "--vrs-annotated-vcf", vrs_in["vcf"].path,
+        ]
+        os.chdir(self.django_dir)
+        pipeline_utils.run_process(args)
+        with open(self.output().path, "w") as f:
+            f.write("done\n")
+
+
+###############################################
 #         COMPUTE GENOMIC HGVS STRINGS        #
 ###############################################
 
@@ -826,6 +983,7 @@ class LoadEnigmaDomains(VCFAssemblyTask):
     QueryClinGenAlleleRegistry,
     LoadEnigmaDomains,
     RunPseudonymGenerator,
+    LoadVaraicoPapersToDatabase,
 )
 class VCFAssembly(VCFAssemblyTask):
     """Runs all source chains, VRS-annotates each VCF, loads to DB, and writes sentinel."""
