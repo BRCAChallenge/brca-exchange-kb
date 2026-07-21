@@ -239,7 +239,7 @@ VCF_ANALYSIS_GENOME_FA ?= /data/references/hg38.fa
 # run (e.g. no previous release exists yet) to score every variant.
 VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF ?=
 ifneq ($(strip $(VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF)),)
-VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF_FLAG = --GenerateSpliceAIScores-previous-spliceai-vcf $(VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF)
+VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF_FLAG = --previous-spliceai-vcf $(VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF)
 endif
 
 run-variant-analysis: ## Run the full pipeline (VariantAssembly + VariantAnalysis: VEP/BayesDel/SpliceAI/priors/popfreq) locally (no Docker)
@@ -251,8 +251,8 @@ run-variant-analysis: ## Run the full pipeline (VariantAssembly + VariantAnalysi
 		--PipelineParams-seq-repo-dir $(VCF_ASSEMBLY_SEQ_REPO_DIR) \
 		--PipelineParams-file-parent-dir $(VCF_ASSEMBLY_OUT_DIR) \
 		--PipelineParams-output-dir $(VCF_ASSEMBLY_OUT_DIR) \
-		--AnalyzeVEP-vep-server-url $(VCF_ANALYSIS_VEP_SERVER_URL) \
-		--GenerateSpliceAIScores-genome-fa $(VCF_ANALYSIS_GENOME_FA) \
+		--vep-server-url $(VCF_ANALYSIS_VEP_SERVER_URL) \
+		--genome-fa $(VCF_ANALYSIS_GENOME_FA) \
 		$(VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF_FLAG) \
 		--local-scheduler
 
