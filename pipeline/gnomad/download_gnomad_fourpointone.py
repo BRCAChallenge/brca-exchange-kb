@@ -97,12 +97,16 @@ def postprocess(input_vcf, output_vcf, coverage_parquet, logger):
                                description="gnomAD flags, from the FILTER field")
     reader.header.info.add("coverage", number=1, type="String",
                            description="Variant coverage, according to gnomAD")
+    for contig in ('13', '17', 'chr13', 'chr17'):
+        if contig not in reader.header.contigs:
+            reader.header.add_line('##contig=<ID={}>'.format(contig))
     writer = pysam.VariantFile(output_vcf, 'w', header=reader.header)
     for record in reader:
-        if record.filter.keys()[0] == "PASS":
+        filter_keys = list(record.filter.keys())
+        if not filter_keys or filter_keys[0] == "PASS":
             record.info['flags'] = "-"
         else:
-            record.info['flags'] = ','.join(record.filter.keys())
+            record.info['flags'] = ','.join(filter_keys)
         alt = record.alts[0]
         var_id = "%s-%s-%s-%s" % (re.sub("^chr", "", record.chrom),
                                   str(record.pos), record.ref, alt)

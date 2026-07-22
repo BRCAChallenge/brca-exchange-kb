@@ -255,6 +255,32 @@ class VRSAnnotateEXLOVD(VCFAssemblyTask):
                            self.output()["pkl"].path)
 
 
+@requires(VRSAnnotateEXLOVD)
+class DeduplicateExLOVD(VCFAssemblyTask):
+    """Remove duplicate exLOVD records that share the same VRS digest.
+
+    Keeps the record citing the most recent year in key_observational_reference;
+    ties broken by number of non-missing INFO fields.
+    The pkl is unchanged (already keyed by VRS digest, so inherently unique).
+    """
+
+    def output(self):
+        annotated = self.input()
+        return {
+            "vcf": luigi.LocalTarget(f"{self.vcf_dir}/exLOVD.BRCA12.sorted.hg38.dedup.vcf.gz"),
+            "pkl": annotated["pkl"],
+        }
+
+    def run(self):
+        script = os.path.join(_pipeline_dir, "variant_assembly", "deduplicate_exlovd_vcf.py")
+        args = [
+            "python", script,
+            "--input-vcf",  self.input()["vcf"].path,
+            "--output-vcf", self.output()["vcf"].path,
+        ]
+        self._run_process_with_pipeline_path(args)
+
+
 ##############################################
 #               sharedLOVD                   #
 ##############################################
@@ -677,7 +703,7 @@ class VRSAnnotateGnomADv41(VCFAssemblyTask):
     VRSAnnotateEnigma,
     VRSAnnotateClinVar,
     VRSAnnotateSharedLOVD,
-    VRSAnnotateEXLOVD,
+    DeduplicateExLOVD,
     VRSAnnotateGnomAD,
     VRSAnnotateFunctionalAssays,
     VRSAnnotateGnomADv41,

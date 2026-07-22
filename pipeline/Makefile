@@ -243,6 +243,7 @@ VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF_FLAG = --previous-spliceai-vcf $(VCF_ANALYSIS
 endif
 
 run-variant-analysis: ## Run the full pipeline (VariantAssembly + VariantAnalysis: VEP/BayesDel/SpliceAI/priors/popfreq) locally (no Docker)
+	PATH=$(HOME)/bin:$(PATH) \
 	HGVS_SEQREPO_DIR=$(VCF_ASSEMBLY_SEQ_REPO_DIR) \
 	UTA_DB_URL=$(VCF_ASSEMBLY_UTA_DB_URL) \
 	PYTHONPATH=/data/new_schema/code/pipeline \
