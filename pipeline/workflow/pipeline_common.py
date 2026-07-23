@@ -67,6 +67,9 @@ class PipelineParams(luigi.Config):
     seq_repo_dir = luigi.Parameter(default=str(None),
                                    description='directory of seq_repo')
 
+    db_schema = luigi.Parameter(default='pipeline',
+                                description='PostgreSQL schema name for pipeline DB tables')
+
     victor_docker_image_name = luigi.Parameter(default=str(None),
                                                description='docker image name for running the victor annotation pipeline')
 

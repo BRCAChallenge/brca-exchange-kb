@@ -742,6 +742,7 @@ class LoadVCFsToDatabase(VCFAssemblyTask):
             "--functional-assay-pkl",    assays_in["pkl"].path,
         ]
         os.chdir(self.django_dir)
+        os.environ['PIPELINE_SCHEMA'] = self.cfg.db_schema
         pipeline_utils.run_process(args)
         with open(self.output().path, "w") as f:
             f.write("done\n")
@@ -896,6 +897,7 @@ class LoadVaraicoPapersToDatabase(VCFAssemblyTask):
             "--vrs-annotated-vcf", vrs_in["vcf"].path,
         ]
         os.chdir(self.django_dir)
+        os.environ['PIPELINE_SCHEMA'] = self.cfg.db_schema
         pipeline_utils.run_process(args)
         with open(self.output().path, "w") as f:
             f.write("done\n")
@@ -914,7 +916,7 @@ class ComputeGenomicHGVS(VCFAssemblyTask):
 
     def run(self):
         script = os.path.join(_pipeline_dir, "variant_analysis", "compute_genomic_hgvs.py")
-        args = ["python", script]
+        args = ["python", script, "--schema", self.cfg.db_schema]
         self._run_process_with_pipeline_path(args)
         with open(self.output().path, "w") as f:
             f.write("done\n")
@@ -935,7 +937,7 @@ class QueryClinGenAlleleRegistry(VCFAssemblyTask):
 
     def run(self):
         script = os.path.join(_pipeline_dir, "variant_assembly", "query_clingen_allele_registry.py")
-        args = ["python", script]
+        args = ["python", script, "--schema", self.cfg.db_schema]
         self._run_process_with_pipeline_path(args)
         with open(self.output().path, "w") as f:
             f.write("done\n")
@@ -968,6 +970,7 @@ class RunPseudonymGenerator(VCFAssemblyTask):
         args = [
             "python", script,
             "--db-url",    self.db_url,
+            "--schema",    self.cfg.db_schema,
             "--configfile", gene_config,
             "--resources",  self.cfg.resources_dir,
         ]
@@ -989,7 +992,7 @@ class LoadEnigmaDomains(VCFAssemblyTask):
 
     def run(self):
         script = os.path.join(_pipeline_dir, "variant_analysis", "load_enigma_domains.py")
-        args = ["python", script]
+        args = ["python", script, "--schema", self.cfg.db_schema]
         self._run_process_with_pipeline_path(args)
         with open(self.output().path, "w") as f:
             f.write("done\n")

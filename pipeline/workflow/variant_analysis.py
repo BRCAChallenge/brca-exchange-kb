@@ -29,7 +29,7 @@ class AnalyzeVEP(VCFAssemblyTask):
 
     def run(self):
         script = os.path.join(_pipeline_dir, 'variant_analysis', 'run_vep_analysis.py')
-        args = ['python', script, '--vep-url', self.vep_server_url]
+        args = ['python', script, '--vep-url', self.vep_server_url, '--schema', self.cfg.db_schema]
         self._run_process_with_pipeline_path(args)
         with open(self.output().path, 'w') as f:
             f.write('done\n')
@@ -65,7 +65,7 @@ class AnalyzeBayesDel(VCFAssemblyTask):
     def run(self):
         _, victor_vcf = self.input()
         script = os.path.join(_pipeline_dir, 'variant_analysis', 'run_bayesdel_analysis.py')
-        args = ['python', script, '--victor-vcf', victor_vcf.path]
+        args = ['python', script, '--victor-vcf', victor_vcf.path, '--schema', self.cfg.db_schema]
         self._run_process_with_pipeline_path(args)
         with open(self.output().path, 'w') as f:
             f.write('done\n')
@@ -84,7 +84,7 @@ class ExportVariantsToVCF(VCFAssemblyTask):
 
     def run(self):
         script = os.path.join(_pipeline_dir, 'variant_analysis', 'export_variants_to_vcf.py')
-        args = ['python', script, '--output', self.output().path]
+        args = ['python', script, '--output', self.output().path, '--schema', self.cfg.db_schema]
         self._run_process_with_pipeline_path(args)
 
 
@@ -136,7 +136,7 @@ class AnalyzeSpliceAI(VCFAssemblyTask):
 
     def run(self):
         script = os.path.join(_pipeline_dir, 'variant_analysis', 'run_spliceai_analysis.py')
-        args = ['python', script, '--spliceai-vcf', self.input().path]
+        args = ['python', script, '--spliceai-vcf', self.input().path, '--schema', self.cfg.db_schema]
         self._run_process_with_pipeline_path(args)
         with open(self.output().path, 'w') as f:
             f.write('done\n')
@@ -162,6 +162,7 @@ class AnalyzePriors(VCFAssemblyTask):
         args = [
             'python', script,
             '--processes', str(self.priors_processes),
+            '--schema', self.cfg.db_schema,
         ]
         self._run_process_with_pipeline_path(args)
         with open(self.output().path, 'w') as f:
@@ -241,6 +242,7 @@ class AnalyzePopfreq(VCFAssemblyTask):
             '--lcr', lcr_bed.path,
             '--method-name', 'popfreq_1.3',
             '--overwrite',
+            '--schema', self.cfg.db_schema,
         ]
         self._run_process_with_pipeline_path(args)
         with open(self.output().path, 'w') as f:
@@ -273,6 +275,7 @@ class AnalyzePopfreqLegacy(VCFAssemblyTask):
             '--allele-count-rare-variant-threshold', '0',
             '--no-lcr',
             '--overwrite',
+            '--schema', self.cfg.db_schema,
         ]
         self._run_process_with_pipeline_path(args)
         with open(self.output().path, 'w') as f:
