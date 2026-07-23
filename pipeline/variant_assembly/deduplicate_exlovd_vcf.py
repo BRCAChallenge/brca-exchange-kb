@@ -42,7 +42,7 @@ def _alt_digest(rec):
     """Return the ALT-allele VRS digest (index 1 of VRS_Allele_IDs), or None."""
     ids = rec.info.get('VRS_Allele_IDs')
     if ids and len(ids) >= 2:
-        return ids[1].removeprefix('ga4gh:VA.')
+        return ids[1]
     return None
 
 

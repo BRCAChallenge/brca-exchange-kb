@@ -44,8 +44,6 @@ def load(tsv_path, db_url, dry_run):
             if not vrs:
                 skipped += 1
                 continue
-            # DB stores bare digest; TSV has "ga4gh:VA.<digest>"
-            vrs = vrs.removeprefix('ga4gh:VA.')
             rows.append((
                 vrs,
                 rec.get(COL_CODE, '').strip() or None,

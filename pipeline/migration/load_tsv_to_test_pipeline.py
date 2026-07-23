@@ -8,7 +8,9 @@ Usage:
 
 Pass 1 (built TSV, one row per variant):
     Populates: variant, genomic_coordinates, variant_enigma,
-               variant_clinvar, variant_lovd, variant_exlovd, variant_gnomad.
+               variant_clinvar, variant_lovd, variant_exlovd, variant_gnomad,
+               analysis_priors, analysis_bayesdel,
+               analysis_provisional_evidence_codes.
 
 Pass 2 (reports TSV, one row per submission):
     Populates: report_clinvar, report_lovd, report_gnomad.
@@ -42,6 +44,9 @@ FLUSH_ORDER = [
     'report_lovd', 'variant_lovd',
     'report_clinvar', 'variant_clinvar',
     'variant_enigma',
+    'analysis_provisional_evidence_codes',
+    'analysis_bayesdel',
+    'analysis_priors',
     'genomic_coordinates',
     'variant',
 ]
@@ -193,6 +198,63 @@ def load_variant_row(row, digest, counts):
             )
         counts['variant_gnomad'] += 1
 
+    bayesdel = f(row, 'BayesDel_nsfp33a_noAF')
+    with connections[DB].cursor() as cur:
+        cur.execute(
+            'INSERT INTO analysis_bayesdel ("VRS_Digest","BayesDel_nsfp33a_noAF") VALUES (%s,%s)',
+            [digest, bayesdel],
+        )
+    counts['analysis_bayesdel'] += 1
+
+    if f(row, 'varLoc') != '-':
+        with connections[DB].cursor() as cur:
+            cur.execute(
+                '''INSERT INTO analysis_priors
+                       ("VRS_Digest",
+                        "varLoc","proteinPrior",
+                        "refDonorPrior","refRefDonorMES","refRefDonorZ",
+                        "altRefDonorMES","altRefDonorZ","refRefDonorSeq","altRefDonorSeq",
+                        "deNovoDonorPrior","refDeNovoDonorMES","refDeNovoDonorZ",
+                        "altDeNovoDonorMES","altDeNovoDonorZ","refDeNovoDonorSeq","altDeNovoDonorSeq",
+                        "deNovoDonorGenomicSplicePos","deNovoDonorTranscriptSplicePos",
+                        "closestDonorGenomicSplicePos","closestDonorTranscriptSplicePos",
+                        "closestDonorRefMES","closestDonorRefZ","closestDonorRefSeq",
+                        "closestDonorAltMES","closestDonorAltZ","closestDonorAltSeq",
+                        "refAccPrior","refRefAccMES","refRefAccZ",
+                        "altRefAccMES","altRefAccZ","refRefAccSeq","altRefAccSeq",
+                        "applicablePrior")
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                [digest,
+                 f(row, 'varLoc'), f(row, 'proteinPrior'),
+                 f(row, 'refDonorPrior'), f(row, 'refRefDonorMES'), f(row, 'refRefDonorZ'),
+                 f(row, 'altRefDonorMES'), f(row, 'altRefDonorZ'),
+                 f(row, 'refRefDonorSeq'), f(row, 'altRefDonorSeq'),
+                 f(row, 'deNovoDonorPrior'), f(row, 'refDeNovoDonorMES'), f(row, 'refDeNovoDonorZ'),
+                 f(row, 'altDeNovoDonorMES'), f(row, 'altDeNovoDonorZ'),
+                 f(row, 'refDeNovoDonorSeq'), f(row, 'altDeNovoDonorSeq'),
+                 f(row, 'deNovoDonorGenomicSplicePos'), f(row, 'deNovoDonorTranscriptSplicePos'),
+                 f(row, 'closestDonorGenomicSplicePos'), f(row, 'closestDonorTranscriptSplicePos'),
+                 f(row, 'closestDonorRefMES'), f(row, 'closestDonorRefZ'), f(row, 'closestDonorRefSeq'),
+                 f(row, 'closestDonorAltMES'), f(row, 'closestDonorAltZ'), f(row, 'closestDonorAltSeq'),
+                 f(row, 'refAccPrior'), f(row, 'refRefAccMES'), f(row, 'refRefAccZ'),
+                 f(row, 'altRefAccMES'), f(row, 'altRefAccZ'),
+                 f(row, 'refRefAccSeq'), f(row, 'altRefAccSeq'),
+                 f(row, 'applicablePrior')],
+            )
+        counts['analysis_priors'] += 1
+
+    popfreq_code = f(row, 'Provisional_Evidence_Code_Popfreq')
+    if popfreq_code != '-':
+        with connections[DB].cursor() as cur:
+            cur.execute(
+                '''INSERT INTO analysis_provisional_evidence_codes
+                       ("VRS_Digest", popfreq_code, popfreq_description, method_name)
+                   VALUES (%s,%s,%s,'popfreq_1.1')''',
+                [digest, popfreq_code,
+                 f(row, 'Provisional_Evidence_Description_Popfreq')],
+            )
+        counts['analysis_provisional_evidence_codes'] += 1
+
 
 def load_report_row(row, digest, counts):
     source = row['Source']
@@ -307,7 +369,7 @@ def main():
                 vr_id = row.get('VR_ID', '')
                 if not vr_id or vr_id == '-':
                     continue
-                digest = vr_id.removeprefix('ga4gh:VA.')
+                digest = vr_id
                 load_variant_row(row, digest, counts)
                 key = (row['Chr'], row['Pos'], row['Ref'], row['Alt'])
                 coord_key_to_digest[key] = digest

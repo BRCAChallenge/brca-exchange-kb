@@ -72,7 +72,7 @@ def info_str(rec, key, default='-'):
 def alt_digest(rec):
     ids = rec.info.get('VRS_Allele_IDs')
     if ids and len(ids) >= 2:
-        return ids[1].removeprefix('ga4gh:VA.')
+        return ids[1]
     return None
 
 

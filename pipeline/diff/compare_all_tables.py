@@ -1,11 +1,13 @@
 #!/usr/bin/env python
 """
-Compare gnomAD-, LOVD-, ClinVar-, and ENIGMA-related tables across two schemas.
+Compare tables across two schemas.
 
 Usage:
     python compare_all_tables.py --old OLD_SCHEMA --new NEW_SCHEMA --output-dir DIR
 
 Runs compare_table.py for each table and writes output files to DIR:
+    variant.detail.txt
+    genomic_coordinates.detail.txt
     variant_gnomad.detail.txt
     report_gnomad.detail.txt
     variant_lovd.detail.txt
@@ -14,7 +16,16 @@ Runs compare_table.py for each table and writes output files to DIR:
     report_clinvar.detail.txt
     variant_enigma.detail.txt
     variant_exlovd.detail.txt
+    analysis_bayesdel.detail.txt
+    analysis_priors.detail.txt
+    analysis_provisional_evidence_codes.detail.txt
     summary.txt
+
+variant uses VRS_Digest as its natural primary key.
+
+genomic_coordinates uses (VRS_Digest_id, assembly) as the natural key for
+matching rows, since its surrogate id column differs across schemas. That same
+id column is also omitted from the diff itself, since it always differs.
 
 report_gnomad uses (VRS_Digest_id, version, data_type) as the natural key for
 matching rows, since its surrogate id column differs across schemas. That same
@@ -47,6 +58,8 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _COMPARE = os.path.join(_SCRIPT_DIR, 'compare_table.py')
 
 TABLES = [
+    dict(table='variant',              pk=None, omit=None),
+    dict(table='genomic_coordinates',  pk=['VRS_Digest_id', 'assembly'], omit=['id']),
     dict(table='variant_gnomad', pk=None, omit=None),
     dict(table='report_gnomad',  pk=['VRS_Digest_id', 'version', 'data_type'], omit=['id']),
     dict(table='variant_lovd',   pk=None, omit=None),
@@ -55,6 +68,9 @@ TABLES = [
     dict(table='report_clinvar',  pk=['VRS_Digest_id', 'SCV'], omit=['id']),
     dict(table='variant_enigma',  pk=['VRS_Digest_id'], omit=['id']),
     dict(table='variant_exlovd',  pk=None, omit=None),
+    dict(table='analysis_bayesdel',   pk=None, omit=None),
+    dict(table='analysis_priors',     pk=None, omit=None),
+    dict(table='analysis_provisional_evidence_codes', pk=None, omit=None),
 ]
 
 

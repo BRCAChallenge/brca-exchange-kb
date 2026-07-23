@@ -9,6 +9,8 @@ HGVS string, then populate variant fields:
   - HGVS_Protein    ← MANE Select protein RefSeq hgvs
   - ensembl_protein ← MANE Select protein Ensembl hgvs
   - Synonyms        ← '|'-joined hgvs + protein hgvs from all non-MANE transcript alleles
+  - Gene_Symbol     ← geneSymbol from the MANE Select transcriptAllele (only set when
+                       current value is '-', to avoid overwriting authoritative sources)
 
 Also inserts a GRCh37 row into genomic_coordinates for each genomicAllele
 whose referenceGenome is 'GRCh37' (skipped if row already exists).
@@ -73,6 +75,21 @@ def _mane_select(data):
     return None, None, None, None
 
 
+def _gene_symbol(data):
+    """Return the gene symbol from the MANE Select transcriptAllele, falling
+    back to the first transcriptAllele that has a geneSymbol."""
+    for ta in data.get('transcriptAlleles', []):
+        if ta.get('MANE', {}).get('maneStatus') == 'MANE Select':
+            gs = ta.get('geneSymbol')
+            if gs:
+                return gs
+    for ta in data.get('transcriptAlleles', []):
+        gs = ta.get('geneSymbol')
+        if gs:
+            return gs
+    return None
+
+
 def _synonyms(data):
     """Return a '|'-joined string of all hgvs and protein hgvs from transcript
     alleles that do not have a MANE object."""
@@ -124,7 +141,8 @@ def _grch37_coords(data, vrs_digest):
 
 
 def _extract(data, vrs_digest):
-    """Return (variant_update_tuple, [coord_rows]) from a ClinGen response."""
+    """Return (ca_id, title, hgvs_cdna, ensembl_cdna, hgvs_protein,
+    ensembl_protein, synonyms, coord_rows, gene_symbol) from a ClinGen response."""
     at_id = data.get('@id', '')
     ca_id = at_id.rsplit('/', 1)[-1] if at_id else None
 
@@ -134,8 +152,9 @@ def _extract(data, vrs_digest):
     hgvs_cdna, ensembl_cdna, hgvs_protein, ensembl_protein = _mane_select(data)
     synonyms = _synonyms(data)
     coord_rows = _grch37_coords(data, vrs_digest)
+    gene_symbol = _gene_symbol(data)
 
-    return ca_id, title, hgvs_cdna, ensembl_cdna, hgvs_protein, ensembl_protein, synonyms, coord_rows
+    return ca_id, title, hgvs_cdna, ensembl_cdna, hgvs_protein, ensembl_protein, synonyms, coord_rows, gene_symbol
 
 
 @click.command()
@@ -197,7 +216,7 @@ def main(db_url, schema, overwrite):
                 not_found += 1
                 continue
 
-            ca_id, title, hgvs_cdna, ensembl_cdna, hgvs_protein, ensembl_protein, synonyms, coord_rows = \
+            ca_id, title, hgvs_cdna, ensembl_cdna, hgvs_protein, ensembl_protein, synonyms, coord_rows, gene_symbol = \
                 _extract(data, vrs_digest)
 
             if ca_id:
@@ -211,6 +230,7 @@ def main(db_url, schema, overwrite):
                     ensembl_protein or '-',
                     synonyms,
                     ref_seq,
+                    gene_symbol or '-',
                     vrs_digest,
                 ))
 
@@ -228,7 +248,8 @@ def main(db_url, schema, overwrite):
                     """UPDATE variant
                        SET "CA_ID" = %s, title = %s, "HGVS_cDNA" = %s, ensembl_cdna = %s,
                            "HGVS_Protein" = %s, ensembl_protein = %s, "Synonyms" = %s,
-                           "Reference_Sequence" = %s
+                           "Reference_Sequence" = %s,
+                           "Gene_Symbol" = CASE WHEN "Gene_Symbol" = '-' THEN %s ELSE "Gene_Symbol" END
                        WHERE "VRS_Digest" = %s""",
                     batch,
                 )
