@@ -3,6 +3,7 @@ import datetime
 import os
 import re
 import shutil
+import sys
 import tempfile
 
 import luigi
@@ -274,7 +275,7 @@ class DeduplicateExLOVD(VCFAssemblyTask):
     def run(self):
         script = os.path.join(_pipeline_dir, "variant_assembly", "deduplicate_exlovd_vcf.py")
         args = [
-            "python", script,
+            sys.executable, script,
             "--input-vcf",  self.input()["vcf"].path,
             "--output-vcf", self.output()["vcf"].path,
         ]
@@ -514,7 +515,7 @@ class PostprocessGnomADv3VCF(VCFAssemblyTask):
         download_out = self.input()
         script = os.path.join(_pipeline_dir, 'gnomad', 'download_gnomad_fourpointone.py')
         args = [
-            'python', script,
+            sys.executable, script,
             '--postprocess-only',
             '--input-vcf', download_out['v3'].path,
             '-c', self.gnomad_v3_genome_coverage,
@@ -967,7 +968,7 @@ class LoadEnigmaDomains(VCFAssemblyTask):
 
     def run(self):
         script = os.path.join(_pipeline_dir, "variant_analysis", "load_enigma_domains.py")
-        args = ["python", script, "--schema", self.cfg.db_schema]
+        args = [sys.executable, script, "--schema", self.cfg.db_schema]
         self._run_process_with_pipeline_path(args)
         with open(self.output().path, "w") as f:
             f.write("done\n")
