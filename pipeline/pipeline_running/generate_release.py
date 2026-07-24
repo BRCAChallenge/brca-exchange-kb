@@ -225,9 +225,13 @@ Example usage:
     credentials_path = resolve_path(args.credentials_path)
     previous_release_dir = resolve_path(args.previous_release_dir) if args.previous_release_dir else None
 
-    # Generate data date and working directory
+    # Generate data date and working directory. The working directory name
+    # doubles as the pipeline's PostgreSQL schema name (see
+    # brca_pipeline_cfg.mk.j2's VCF_ASSEMBLY_DB_SCHEMA), so it's built from an
+    # underscore-separated date rather than DATA_DATE's hyphenated ISO form --
+    # unquoted Postgres identifiers can't contain hyphens.
     data_date = datetime.now().strftime("%Y-%m-%d")
-    work_dir = root_dir / f"data_release_{data_date}"
+    work_dir = root_dir / f"data_release_{data_date.replace('-', '_')}"
 
     print(f"=== BRCA Exchange Release Generator ===")
     print(f"Data Date: {data_date}")
