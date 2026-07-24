@@ -89,8 +89,8 @@ VEP_CACHE_DIR    ?= /data/vep_cache
 VEP_FASTA        ?= /data/references/hg38.fa
 VEP_IMAGE        ?= brca-vep-server
 
-build-vep-server: ## Build the VEP REST server Docker image
-	docker build -t $(VEP_IMAGE) pipeline/vep_server/
+build-vep-server: ## Build the VEP REST server Docker image (skipped if already built)
+	docker image inspect $(VEP_IMAGE) >/dev/null 2>&1 || docker build -t $(VEP_IMAGE) pipeline/vep_server/
 
 setup-vep-cache: ## Download Ensembl VEP homo_sapiens GRCh38 cache (~15 GB)
 	mkdir -p $(VEP_CACHE_DIR)
@@ -99,7 +99,7 @@ setup-vep-cache: ## Download Ensembl VEP homo_sapiens GRCh38 cache (~15 GB)
 	  INSTALL.pl --AUTO c --SPECIES homo_sapiens --ASSEMBLY GRCh38 \
 	             --CACHEDIR /vep_cache --NO_HTSLIB
 
-start-vep-server: ## Start VEP REST server on VEP_PORT (default 8888) if not already running
+start-vep-server: build-vep-server ## Start VEP REST server on VEP_PORT (default 8888) if not already running
 	[ $$(docker ps -f name=$(VEP_CONTAINER) | wc -l) -gt 1 ] || \
 	docker run -d --name $(VEP_CONTAINER) \
 	  --restart unless-stopped \
@@ -171,7 +171,7 @@ test-coverage: ## Running pipeline unit tests with coverage information locally 
 	cd $(PYTHONPATH_PIPELINE)/data && bash getdata && cd $(PYTHONPATH_PIPELINE) && PYTHONPATH=$(PYTHONPATH_PIPELINE) pytest --cov --ignore=splicing/ && coverage html --include="$(PYTHONPATH_PIPELINE)/*" --omit="*/test_*"
 
 
-build-release: checkout build-vep-server setup-files download-resources download-seqrepo start-local-uta start-seqrepo-rest-service start-vep-server run-pipeline variants-by-source ## create new data release
+build-release: checkout setup-files download-resources download-seqrepo start-local-uta start-seqrepo-rest-service start-vep-server run-pipeline variants-by-source ## create new data release
 
 variants-by-source: ## postprocessing: compute statistics for changes with respect to the last release
 	PYTHONPATH=$(PYTHONPATH_PIPELINE) python $(PYTHONPATH_PIPELINE)/utilities/variantsBySource.py -i $(VCF_ASSEMBLY_OUT_DIR)/output/release/built_with_change_types.tsv -c true
