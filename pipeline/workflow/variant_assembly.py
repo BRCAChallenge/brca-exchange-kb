@@ -878,33 +878,6 @@ class VRSAnnotateVaraico(VCFAssemblyTask):
                            self.output()["pkl"].path)
 
 
-@requires(VRSAnnotateVaraico, FilterVaraicoToGeneBoundaries, LoadVCFsToDatabase)
-class LoadVaraicoPapersToDatabase(VCFAssemblyTask):
-    """Call the add_varaico_papers Django management command to populate paper /
-    variant_in_paper for varaico-mined BRCA1/BRCA2 variants already present in `variant`.
-    Depends on LoadVCFsToDatabase for ordering only (variant must already be populated)."""
-
-    django_dir = luigi.Parameter(
-        default='/data/new_schema/code/website/django',
-        description='Directory containing Django manage.py')
-
-    def output(self):
-        return luigi.LocalTarget(os.path.join(self.varaico_dir, "load_varaico_papers_to_db.done"))
-
-    def run(self):
-        vrs_in, filter_in, _ = self.input()
-        args = [
-            "python", "manage.py", "add_varaico_papers", "--skip-checks",
-            "--raw-tsv",           filter_in["tsv"].path,
-            "--vrs-annotated-vcf", vrs_in["vcf"].path,
-        ]
-        os.chdir(self.django_dir)
-        os.environ['PIPELINE_SCHEMA'] = self.cfg.db_schema
-        pipeline_utils.run_process(args)
-        with open(self.output().path, "w") as f:
-            f.write("done\n")
-
-
 ###############################################
 #         COMPUTE GENOMIC HGVS STRINGS        #
 ###############################################
@@ -996,6 +969,42 @@ class LoadEnigmaDomains(VCFAssemblyTask):
         script = os.path.join(_pipeline_dir, "variant_analysis", "load_enigma_domains.py")
         args = ["python", script, "--schema", self.cfg.db_schema]
         self._run_process_with_pipeline_path(args)
+        with open(self.output().path, "w") as f:
+            f.write("done\n")
+
+
+###############################################
+#      LOAD VARAICO PAPERS (FINAL STEP)       #
+###############################################
+
+@requires(VRSAnnotateVaraico, FilterVaraicoToGeneBoundaries, LoadVCFsToDatabase,
+          QueryClinGenAlleleRegistry, LoadEnigmaDomains, RunPseudonymGenerator)
+class LoadVaraicoPapersToDatabase(VCFAssemblyTask):
+    """Call the add_varaico_papers Django management command to populate paper /
+    variant_in_paper for varaico-mined BRCA1/BRCA2 variants already present in `variant`.
+
+    Ordered as the final step of VCFAssembly: depends on every other task that
+    populates or enriches `variant`/`genomic_coordinates` (LoadVCFsToDatabase,
+    QueryClinGenAlleleRegistry, LoadEnigmaDomains, RunPseudonymGenerator), not just
+    LoadVCFsToDatabase, so it always runs last instead of racing them."""
+
+    django_dir = luigi.Parameter(
+        default='/data/new_schema/code/website/django',
+        description='Directory containing Django manage.py')
+
+    def output(self):
+        return luigi.LocalTarget(os.path.join(self.varaico_dir, "load_varaico_papers_to_db.done"))
+
+    def run(self):
+        vrs_in, filter_in, _, _, _, _ = self.input()
+        args = [
+            "python", "manage.py", "add_varaico_papers", "--skip-checks",
+            "--raw-tsv",           filter_in["tsv"].path,
+            "--vrs-annotated-vcf", vrs_in["vcf"].path,
+        ]
+        os.chdir(self.django_dir)
+        os.environ['PIPELINE_SCHEMA'] = self.cfg.db_schema
+        pipeline_utils.run_process(args)
         with open(self.output().path, "w") as f:
             f.write("done\n")
 
