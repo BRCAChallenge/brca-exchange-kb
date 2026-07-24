@@ -90,7 +90,7 @@ VEP_FASTA        ?= /data/references/hg38.fa
 VEP_IMAGE        ?= brca-vep-server
 
 build-vep-server: ## Build the VEP REST server Docker image (skipped if already built)
-	docker image inspect $(VEP_IMAGE) >/dev/null 2>&1 || docker build -t $(VEP_IMAGE) pipeline/vep_server/
+	docker image inspect $(VEP_IMAGE) >/dev/null 2>&1 || docker build -t $(VEP_IMAGE) vep_server/
 
 setup-vep-cache: ## Download Ensembl VEP homo_sapiens GRCh38 cache (~15 GB)
 	mkdir -p $(VEP_CACHE_DIR)
