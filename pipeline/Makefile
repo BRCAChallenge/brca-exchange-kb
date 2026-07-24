@@ -6,24 +6,54 @@ ifneq ("$(wildcard $(CONFIG_PATH))","")
 	include $(CONFIG_PATH)
 endif
 
-PREVIOUS_RELEASE_TAR = $(PREVIOUS_RELEASE_DIR)/latest_release.tar.gz
-
 OS := $(shell uname -s)
 
 MKFILE_PATH := $(abspath $(lastword $(MAKEFILE_LIST)))
 
-LUIGI_ROOT_TASK = CompileVCFFiles.GenerateReleaseArchive
+GIT_BRANCH ?= master
+
+# local (non-Docker) pipeline configuration -- these are the paths/settings
+# used to run the real, current Luigi pipeline directly on this host.
+# PYTHONPATH_PIPELINE is resolved to an absolute path (relative to this
+# Makefile's directory) so it stays correct across the chained `cd`s in the
+# test targets below, regardless of a relative default.
+PYTHONPATH_PIPELINE ?= ../../code/pipeline
+PYTHONPATH_PIPELINE := $(abspath $(PYTHONPATH_PIPELINE))
+
+VCF_ASSEMBLY_OUT_DIR ?= ../../data_out
+VCF_ASSEMBLY_SEQ_REPO_DIR ?= /data/seqrepo/latest
+VCF_ASSEMBLY_SEQ_REPO_ROOT ?= $(patsubst %/,%,$(dir $(VCF_ASSEMBLY_SEQ_REPO_DIR)))
+VCF_ASSEMBLY_GENE_CONFIG ?= $(PYTHONPATH_PIPELINE)/workflow/gene_config_brca_only.txt
+VCF_ASSEMBLY_UTA_DB_URL ?= postgresql://anonymous@localhost:50828/uta/uta_20241220
+
+VCF_ANALYSIS_MODULE ?= workflow.variant_analysis
+VCF_ANALYSIS_ROOT_TASK ?= workflow.variant_analysis.VariantAnalysis
+VCF_ANALYSIS_VEP_SERVER_URL ?= http://localhost:8888
+VCF_ANALYSIS_GENOME_FA ?= ../../resources/hg38.fa
+# Optional: path to the SpliceAI-scored VCF from the previous release, to
+# avoid rescoring already-scored variants. Leave unset for a from-scratch
+# run (e.g. no previous release exists yet) to score every variant.
+VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF ?=
+ifneq ($(strip $(VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF)),)
+VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF_FLAG = --previous-spliceai-vcf $(VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF)
+endif
+
+LUIGI_ROOT_TASK = $(VCF_ANALYSIS_ROOT_TASK)
 LUIGI_WORKERS = 8
 
-# the path to seqrepo in the container; this is mounted separately from the rest of /files/resources
-# since seqrepo is huge and thus won't be located in the same place as the rest of the resources
-SEQ_REPO_DIR_DOCKER := /files/resources/seq_repo
+LOCAL_PIPELINE_ENV = \
+	HGVS_SEQREPO_DIR=$(VCF_ASSEMBLY_SEQ_REPO_DIR) \
+	UTA_DB_URL=$(VCF_ASSEMBLY_UTA_DB_URL) \
+	PYTHONPATH=$(PYTHONPATH_PIPELINE)
 
-ifndef GENE_CONFIG_FILENAME
-GENE_CONFIG_FILE = /opt/brca-exchange-kb/pipeline/workflow/gene_config_brca_only.txt
-else
-GENE_CONFIG_FILE = /opt/brca-exchange-kb/pipeline/workflow/$(GENE_CONFIG_FILENAME)
-endif
+PIPELINE_ARGS := \
+	--PipelineParams-gene-config-path $(VCF_ASSEMBLY_GENE_CONFIG) \
+	--PipelineParams-seq-repo-dir $(VCF_ASSEMBLY_SEQ_REPO_DIR) \
+	--PipelineParams-file-parent-dir $(VCF_ASSEMBLY_OUT_DIR) \
+	--PipelineParams-output-dir $(VCF_ASSEMBLY_OUT_DIR) \
+	--workers $(LUIGI_WORKERS)
+
+RUN_TASK_CMD = $(LOCAL_PIPELINE_ENV) python -m luigi --module $(VCF_ANALYSIS_MODULE)
 
 init: ## setup config file
 	echo "creating file in $(CONFIG_PATH). Please edit to your needs in particular the WORK_DIR!"
@@ -33,9 +63,14 @@ init: ## setup config file
 		-D RELEASE_TAG='dev' \
 		pipeline_running/brca_pipeline_cfg.mk.j2 > $(CONFIG_PATH)
 
-checkout: ## checking out code base
+checkout: ## checking out code base; set GIT_COMMIT to pin an exact commit, or GIT_BRANCH (default master) to track a branch's latest commit
 	[ -d $(CODE_BASE) ] || git clone $(BRCA_GIT_REPO) $(CODE_BASE)
+	cd $(CODE_BASE) && git fetch origin
+ifdef GIT_COMMIT
 	cd $(CODE_BASE) && git checkout $(GIT_COMMIT)
+else
+	cd $(CODE_BASE) && git checkout $(GIT_BRANCH) && git merge --ff-only origin/$(GIT_BRANCH)
+endif
 
 build-docker: ## build main pipeline docker image
 	cd $(CODE_BASE)/pipeline/docker && ./build_docker_image.sh $(RELEASE_TAG) || { echo "$(date) Something wrong with docker image creation"; exit 1; }
@@ -91,55 +126,13 @@ setup-files: ## setup various directories to run pipeline
 	[ -d $(RESOURCES_DIR) ] || mkdir -p $(RESOURCES_DIR)
 	[ -d $(PRIORS_REFERENCES) ] || mkdir -p $(PRIORS_REFERENCES)
 	[ -d $(OUT_DIR) ] || mkdir -p $(OUT_DIR)
-	[ -f $(PREVIOUS_RELEASE_TAR) ] || wget https://brcaexchange.org/backend/downloads/releases/current_release.tar.gz -O $(PREVIOUS_RELEASE_TAR)
+	[ -f $(PREVIOUS_RELEASE_DIR)/latest_release.tar.gz ] || wget https://brcaexchange.org/backend/downloads/releases/current_release.tar.gz -O $(PREVIOUS_RELEASE_DIR)/latest_release.tar.gz
 
-.ONESHELL:
-setup-lovd: ## setting up LOVD data via pipeline machine, if not running on pipeline machine, as the access is IP restricted. Requires access to main pipeline machine
-	if [ `hostname -s` != "brcaexchange-dev" ]; then
-		mkdir -p $(OUT_DIR)/LOVD
-		ssh brca@brcaexchange-dev.gi.ucsc.edu curl https://databases.lovd.nl/shared/export/BRCA > $(OUT_DIR)/LOVD/BRCA.txt || \
-		wget https://brcaexchange.org/backend/downloads/BRCA_from_LOVD.2025_11_11.txt -O $(OUT_DIR)/LOVD/BRCA.txt
-	fi
+download-seqrepo: ## Download seq repo data locally (no Docker; seqrepo pull skips downloading the latest release if we already have it)
+	mkdir -p $(VCF_ASSEMBLY_SEQ_REPO_ROOT)
+	seqrepo -v --root-directory $(VCF_ASSEMBLY_SEQ_REPO_ROOT) pull --update-latest
 
-
-ifeq ($(OS), Darwin)
-DOCKER_GRP = 0
-else
-DOCKER_GRP = `stat -c '%g' /var/run/docker.sock`
-endif
-
-COMMON_DOCKER_ARGS = --rm -u `id -u ${USER}`:$(DOCKER_GRP) \
-	-e "DATA_DATE=$(DATA_DATE)" \
-	-e "UTA_DB_URL=$(UTA_DB_URL)" \
-	-e "HGVS_SEQREPO_DIR=$(SEQ_REPO_DIR_DOCKER)/latest" \
-	-e "PYTHONPATH=/opt/brca-exchange-kb/pipeline" \
-	--network host \
-	-v $(RESOURCES_DIR):/files/resources \
-	-v $(SEQ_REPO_DIR):$(SEQ_REPO_DIR_DOCKER) \
-	-v $(OUT_DIR):/files/data \
-	-v $(CREDENTIALS_PATH):/opt/luigi_pipeline_credentials.cfg \
-	-v $(PREVIOUS_RELEASE_PATH):/files/previous_release.tar.gz \
-	-v $(RELEASE_NOTES_PATH):/files/release_notes.txt \
-	-v $(CODE_BASE):/opt/brca-exchange-kb \
-	-v /var/run/docker.sock:/var/run/docker.sock
-
-download-seqrepo: ## Download seq repo data (fyi, seqrepo pull will skip downloading the latest release if we already have it)
-	docker run $(COMMON_DOCKER_ARGS) $(PIPELINE_IMAGE) \
-	  bash -c "mkdir -p $(SEQ_REPO_DIR_DOCKER) && seqrepo -v --root-directory $(SEQ_REPO_DIR_DOCKER) pull --update-latest" \
-	  2>&1 | tee /dev/tty | \
-	  grep 'most recent seqrepo instance is' | rev | cut -d ' ' -f 1 | rev > $(OUT_DIR)/seqrepo_instance.txt
-
-
-run-pipeline: ## running entire pipeline
-	TS=`date +%Y%m%d_%H%M%S`
-	LOG_FILE=$(LOG_DIR)/pipeline_run_$${TS}.log
-	echo "Log files are in $${LOG_FILE}"
-
-	docker run $(COMMON_DOCKER_ARGS) $(PIPELINE_IMAGE) /opt/brca-exchange-kb/pipeline/docker/run_luigi.sh $(PRIORS_REFERENCES) $(OUT_DIR) $(PRIORS_IMAGE) $(VR_IMAGE) $(LUIGI_ROOT_TASK) $(LUIGI_WORKERS) $(GENE_CONFIG_FILE) $(SEQ_REPO_DIR) > $${LOG_FILE} 2>&1
-
-
-run-interactive: ## starting docker container in interactive mode
-	docker run -it $(COMMON_DOCKER_ARGS) $(PIPELINE_IMAGE) bash
+run-pipeline: run-variant-analysis ## running the current luigi pipeline locally (no Docker)
 
 # If the first argument is "run-task"...
 # https://stackoverflow.com/questions/2214575/passing-arguments-to-make-run
@@ -150,40 +143,40 @@ ifeq ($(firstword),$(filter $(firstword), run-task, force-run-task, clean-files-
   $(eval $(RUN_ARGS):;@:)
 endif
 
-RUN_TASK_CMD := docker run $(COMMON_DOCKER_ARGS) $(PIPELINE_IMAGE) /opt/brca-exchange-kb/pipeline/docker/run_luigi.sh $(PRIORS_REFERENCES) $(OUT_DIR) $(PRIORS_IMAGE) $(VR_IMAGE)
+run-task: ## Running a specific luigi task locally (no Docker)
+	$(RUN_TASK_CMD) $(RUN_ARGS) $(PIPELINE_ARGS) --local-scheduler
 
-run-task: ## Running a specific task
-	$(RUN_TASK_CMD) $(RUN_ARGS) $(LUIGI_WORKERS) $(GENE_CONFIG_FILE) $(SEQ_REPO_DIR)
-
-PIPELINE_ARGS := --PipelineParams-output-dir /files/data/output --PipelineParams-file-parent-dir /files/data --PipelineParams-date $(DATA_DATE) --PipelineParams-gene-config-path $(GENE_CONFIG_FILE)
-
-force-run-task: ## Running a specific task (deleting its dependencies first)
-	## TODO: should this command use RUN_ARGS command twice?
-	docker run $(COMMON_DOCKER_ARGS) $(PIPELINE_IMAGE) bash -c 'cd /opt/brca-exchange-kb/pipeline/workflow && python prune_output_files.py CompileVCFFiles $(RUN_ARGS) $(RUN_ARGS) $(PIPELINE_ARGS)'
-	$(RUN_TASK_CMD) $(RUN_ARGS) $(LUIGI_WORKERS) $(GENE_CONFIG_FILE) $(SEQ_REPO_DIR)
+force-run-task: ## Running a specific task locally (deleting its dependencies first)
+	$(LOCAL_PIPELINE_ENV) python $(PYTHONPATH_PIPELINE)/workflow/prune_output_files.py $(VCF_ANALYSIS_MODULE) $(LUIGI_ROOT_TASK) $(RUN_ARGS) $(PIPELINE_ARGS)
+	$(RUN_TASK_CMD) $(RUN_ARGS) $(PIPELINE_ARGS) --local-scheduler
 
 clean-files-from: ## Delete files generated by tasks on the task path between the given task and $(LUIGI_ROOT_TASK)
-	docker run $(COMMON_DOCKER_ARGS) $(PIPELINE_IMAGE) bash -c 'cd /opt/brca-exchange-kb/pipeline/workflow && python prune_output_files.py CompileVCFFiles $(LUIGI_ROOT_TASK) $(RUN_ARGS) $(PIPELINE_ARGS)'
+	$(LOCAL_PIPELINE_ENV) python $(PYTHONPATH_PIPELINE)/workflow/prune_output_files.py $(VCF_ANALYSIS_MODULE) $(LUIGI_ROOT_TASK) $(RUN_ARGS) $(PIPELINE_ARGS)
 
 show-luigi-graph: ## print some representation of the luigi compute graph on the console
-	docker run $(COMMON_DOCKER_ARGS) $(PIPELINE_IMAGE) bash -c 'cd /opt/brca-exchange-kb/pipeline/workflow && PYTHONPATH="/opt/brca-exchange-kb/pipeline:/opt/brca-exchange-kb/pipeline/workflow" luigi-deps-tree --module CompileVCFFiles $(PIPELINE_ARGS) $(LUIGI_ROOT_TASK) | sed -E "s/([^{])\{.*\}([^}])/\1/g" '
+	HGVS_SEQREPO_DIR=$(VCF_ASSEMBLY_SEQ_REPO_DIR) \
+	UTA_DB_URL=$(VCF_ASSEMBLY_UTA_DB_URL) \
+	PYTHONPATH="$(PYTHONPATH_PIPELINE):$(PYTHONPATH_PIPELINE)/workflow" \
+	luigi-deps-tree --module $(VCF_ANALYSIS_MODULE) $(PIPELINE_ARGS) $(LUIGI_ROOT_TASK) | sed -E "s/([^{])\{.*\}([^}])/\1/g"
 
-test: ## Running pipeline unit tests
-	docker run $(COMMON_DOCKER_ARGS) $(PIPELINE_IMAGE) bash -c 'cd /opt/brca-exchange-kb/pipeline/data && bash getdata && cd /opt/brca-exchange-kb/pipeline && pytest --ignore=splicing/'
+test: ## Running pipeline unit tests locally (no Docker)
+	cd $(PYTHONPATH_PIPELINE)/data && bash getdata && cd $(PYTHONPATH_PIPELINE) && PYTHONPATH=$(PYTHONPATH_PIPELINE) pytest --ignore=splicing/
 
-test-coverage: ## Running pipeline unit tests with coverage information
-	docker run $(COMMON_DOCKER_ARGS) $(PIPELINE_IMAGE) bash -c 'cd /opt/brca-exchange-kb/pipeline/data && bash getdata && cd /opt/brca-exchange-kb/pipeline && pytest --cov --ignore=splicing/ && coverage html --include="/opt/brca-exchange-kb/pipeline/*" --omit="*/test_*"'
+test-coverage: ## Running pipeline unit tests with coverage information locally (no Docker)
+	cd $(PYTHONPATH_PIPELINE)/data && bash getdata && cd $(PYTHONPATH_PIPELINE) && PYTHONPATH=$(PYTHONPATH_PIPELINE) pytest --cov --ignore=splicing/ && coverage html --include="$(PYTHONPATH_PIPELINE)/*" --omit="*/test_*"
 
 
-build-release: checkout build-docker setup-files setup-lovd download-resources download-seqrepo start-local-uta start-seqrepo-rest-service run-pipeline variants-by-source ## create new data release
+build-release: checkout build-vep-server setup-files download-resources download-seqrepo start-local-uta start-seqrepo-rest-service start-vep-server run-pipeline variants-by-source ## create new data release
 
 variants-by-source: ## postprocessing: compute statistics for changes with respect to the last release
-	docker run $(COMMON_DOCKER_ARGS) $(PIPELINE_IMAGE) python /opt/brca-exchange-kb/pipeline/utilities/variantsBySource.py  -i /files/data/output/release/built_with_change_types.tsv -c true
+	PYTHONPATH=$(PYTHONPATH_PIPELINE) python $(PYTHONPATH_PIPELINE)/utilities/variantsBySource.py -i $(VCF_ASSEMBLY_OUT_DIR)/output/release/built_with_change_types.tsv -c true
 
-prune-release-notes-output: ## postprocessing: removes some files, s.t. luigi tasks can be triggered to include updated release notes into release archive
-	make clean-files-from GenerateReleaseNotes
+# TODO: GenerateReleaseNotes has no equivalent task yet in workflow.variant_analysis;
+# re-enable once release-notes/archive generation is ported to the new schema pipeline.
+# prune-release-notes-output: ## postprocessing: removes some files, s.t. luigi tasks can be triggered to include updated release notes into release archive
+# 	make clean-files-from GenerateReleaseNotes
 
-include-release-notes: prune-release-notes-output run-pipeline ## postprocessing: include updated release notes into archive
+include-release-notes: run-pipeline ## postprocessing: include updated release notes into archive
 
 cleanup-failed: ## postprocessing: cleaning up some dangling FAILED files, which may be confusing
 	find $(OUT_DIR) -name 'FAILED*' -exec rm -i {} \;
@@ -204,8 +197,8 @@ push-docker: ## postprocessing: pushes docker image to docker hub
 copy-to-previous: ## postprocessing: copy new release tar to previous release folder
 # 	take latest, in case there should be several tar.gz from some reason
 	cp `ls -t $(OUT_DIR)/release-*.tar.gz | head -n 1` $(PREVIOUS_RELEASE_DIR)
-	rm $(PREVIOUS_RELEASE_TAR)
-	ln -s `ls -t $(PREVIOUS_RELEASE_DIR)/release-*.tar.gz | head -n 1` $(PREVIOUS_RELEASE_TAR)
+	rm $(PREVIOUS_RELEASE_DIR)/latest_release.tar.gz
+	ln -s `ls -t $(PREVIOUS_RELEASE_DIR)/release-*.tar.gz | head -n 1` $(PREVIOUS_RELEASE_DIR)/latest_release.tar.gz
 
 post-release-cmds: cleanup-failed include-release-notes push-docker tag-release copy-to-previous ## postprocessing: do all the necessary postprocessing to wrap up a data release
 
@@ -214,44 +207,17 @@ setup-data-from-latest-release-tar: setup-files ## sets up brca output dir with 
 
 setup-dev-env: build-docker setup-files download-resources ## setup development environment
 
-VCF_ASSEMBLY_OUT_DIR ?= ../../data_out
-VCF_ASSEMBLY_SEQ_REPO_DIR ?= /data/seqrepo/latest
-VCF_ASSEMBLY_GENE_CONFIG ?= /data/new_schema/code/pipeline/workflow/gene_config_brca_only.txt
-VCF_ASSEMBLY_UTA_DB_URL ?= postgresql://anonymous@localhost:50828/uta/uta_20241220
-
 run-variant-assembly: ## Run the VariantAssembly luigi task locally (no Docker)
-	HGVS_SEQREPO_DIR=$(VCF_ASSEMBLY_SEQ_REPO_DIR) \
-	UTA_DB_URL=$(VCF_ASSEMBLY_UTA_DB_URL) \
-	PYTHONPATH=/data/new_schema/code/pipeline \
+	$(LOCAL_PIPELINE_ENV) \
 	python -m luigi --module workflow.variant_assembly workflow.variant_assembly.VCFAssembly \
-		--PipelineParams-gene-config-path $(VCF_ASSEMBLY_GENE_CONFIG) \
-		--PipelineParams-seq-repo-dir $(VCF_ASSEMBLY_SEQ_REPO_DIR) \
-		--PipelineParams-file-parent-dir $(VCF_ASSEMBLY_OUT_DIR) \
-		--PipelineParams-output-dir $(VCF_ASSEMBLY_OUT_DIR) \
+		$(PIPELINE_ARGS) \
 		--local-scheduler
-
-VCF_ANALYSIS_MODULE ?= workflow.variant_analysis
-VCF_ANALYSIS_ROOT_TASK ?= workflow.variant_analysis.VariantAnalysis
-VCF_ANALYSIS_VEP_SERVER_URL ?= http://localhost:8888
-VCF_ANALYSIS_GENOME_FA ?= /data/references/hg38.fa
-# Optional: path to the SpliceAI-scored VCF from the previous release, to
-# avoid rescoring already-scored variants. Leave unset for a from-scratch
-# run (e.g. no previous release exists yet) to score every variant.
-VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF ?=
-ifneq ($(strip $(VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF)),)
-VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF_FLAG = --previous-spliceai-vcf $(VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF)
-endif
 
 run-variant-analysis: ## Run the full pipeline (VariantAssembly + VariantAnalysis: VEP/BayesDel/SpliceAI/priors/popfreq) locally (no Docker)
 	PATH=$(HOME)/bin:$(PATH) \
-	HGVS_SEQREPO_DIR=$(VCF_ASSEMBLY_SEQ_REPO_DIR) \
-	UTA_DB_URL=$(VCF_ASSEMBLY_UTA_DB_URL) \
-	PYTHONPATH=/data/new_schema/code/pipeline \
+	$(LOCAL_PIPELINE_ENV) \
 	python -m luigi --module $(VCF_ANALYSIS_MODULE) $(VCF_ANALYSIS_ROOT_TASK) \
-		--PipelineParams-gene-config-path $(VCF_ASSEMBLY_GENE_CONFIG) \
-		--PipelineParams-seq-repo-dir $(VCF_ASSEMBLY_SEQ_REPO_DIR) \
-		--PipelineParams-file-parent-dir $(VCF_ASSEMBLY_OUT_DIR) \
-		--PipelineParams-output-dir $(VCF_ASSEMBLY_OUT_DIR) \
+		$(PIPELINE_ARGS) \
 		--vep-server-url $(VCF_ANALYSIS_VEP_SERVER_URL) \
 		--genome-fa $(VCF_ANALYSIS_GENOME_FA) \
 		$(VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF_FLAG) \
