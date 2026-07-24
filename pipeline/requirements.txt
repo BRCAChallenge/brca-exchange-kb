@@ -57,6 +57,8 @@ ipython>=8.20.0
 ipython-genutils==0.2.0
 itertoolz==0.5
 jedi>=0.18.1  # Updated for ipython>=8.20.0 compatibility
+Jinja2==3.1.6
+jinja2-cli==1.0.1  # provides the `jinja2` command used by `make init`
 lockfile==0.12.2
 luigi==3.8.0
 lxml==4.9.2
