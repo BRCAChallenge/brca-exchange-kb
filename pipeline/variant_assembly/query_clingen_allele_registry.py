@@ -62,38 +62,18 @@ def _query(session, hgvs):
 
 def _mane_select(data):
     """Return (nuc_refseq, nuc_ensembl, prot_refseq, prot_ensembl) from the
-    MANE Select transcript allele, or (None, None, None, None).
-
-    Protein HGVS is built from the NP_/ENSP_ accession in MANE.protein combined
-    with the correct p. notation from proteinEffect.hgvs.  ClinGen sometimes
-    stores n. (nucleotide) notation on the protein accession for intronic variants,
-    which is wrong; proteinEffect.hgvs always has the correct p. form.
-    """
+    MANE Select transcript allele, or (None, None, None, None)."""
     for ta in data.get('transcriptAlleles', []):
         mane = ta.get('MANE')
         if not mane or mane.get('maneStatus') != 'MANE Select':
             continue
         nuc  = mane.get('nucleotide', {})
         prot = mane.get('protein',    {})
-
-        nuc_refseq  = nuc.get('RefSeq',  {}).get('hgvs')
-        nuc_ensembl = nuc.get('Ensembl', {}).get('hgvs')
-
-        prot_effect = ta.get('proteinEffect', {}).get('hgvs')
-
-        prot_refseq_raw  = prot.get('RefSeq',  {}).get('hgvs')
-        prot_ensembl_raw = prot.get('Ensembl', {}).get('hgvs')
-
-        def _with_effect(raw, effect):
-            if raw and ':' in raw and effect:
-                return f'{raw.split(":", 1)[0]}:{effect}'
-            return raw
-
         return (
-            nuc_refseq,
-            nuc_ensembl,
-            _with_effect(prot_refseq_raw, prot_effect),
-            _with_effect(prot_ensembl_raw, prot_effect),
+            nuc.get('RefSeq',  {}).get('hgvs'),
+            nuc.get('Ensembl', {}).get('hgvs'),
+            prot.get('RefSeq',  {}).get('hgvs'),
+            prot.get('Ensembl', {}).get('hgvs'),
         )
     return None, None, None, None
 
