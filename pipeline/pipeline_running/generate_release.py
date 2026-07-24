@@ -166,17 +166,21 @@ def run_pipeline(code_base: Path) -> None:
 
 def main() -> int:
     """Main entry point."""
-    default_git_commit = get_current_branch(Path(__file__).resolve().parent)
+    # The branch to build always comes from the checkout this script is
+    # itself running from -- no CLI override, so there's no way to
+    # accidentally deploy a different branch than the one you're standing in.
+    git_commit = get_current_branch(Path(__file__).resolve().parent)
 
     parser = argparse.ArgumentParser(
         description="Generate a new BRCA Exchange data release",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+        epilog=f"""
+Builds from the current branch of this checkout ('{git_commit}').
+
 Example usage:
-  %(prog)s /data/releases /data/credentials /data/previous_releases
-  %(prog)s /data/releases /data/credentials /data/previous_releases gene_config_brca_hbop.txt v1.2.3
-  %(prog)s /data/releases /data/credentials /data/previous_releases gene_config_brca_only.txt my-feature-branch
-  %(prog)s /data/releases /data/credentials  # no previous release to compare against
+  %(prog)s /data/releases /data/credentials
+  %(prog)s /data/releases /data/credentials --previous-release-dir /data/previous_releases
+  %(prog)s /data/releases /data/credentials gene_config_brca_hbop.txt --previous-release-dir /data/previous_releases
         """
     )
 
@@ -193,9 +197,9 @@ Example usage:
     )
 
     parser.add_argument(
-        "previous_release_dir",
+        "--previous-release-dir",
+        dest="previous_release_dir",
         type=str,
-        nargs='?',
         default=None,
         help="Directory containing previous release for comparison "
              "(optional; defaults to the working directory itself, i.e. no separate comparison dir)"
@@ -207,15 +211,6 @@ Example usage:
         nargs='?',
         default="gene_config_brca_only.txt",
         help="Gene configuration filename (default: gene_config_brca_only.txt)"
-    )
-
-    parser.add_argument(
-        "git_commit",
-        type=str,
-        nargs='?',
-        default=default_git_commit,
-        help="Git commit/branch/tag to checkout from GitHub "
-             f"(default: the branch this script is currently checked out on, '{default_git_commit}')"
     )
 
     args = parser.parse_args()
@@ -237,7 +232,7 @@ Example usage:
     print(f"Data Date: {data_date}")
     print(f"Working Directory: {work_dir}")
     print(f"Gene Configuration: {args.gene_config_filename}")
-    print(f"Git Commit: {args.git_commit}")
+    print(f"Git Commit: {git_commit}")
     print(f"Previous Release Dir: {previous_release_dir or '(none -- defaulting to working directory)'}")
     print("=" * 40)
 
@@ -247,7 +242,7 @@ Example usage:
 
     # Set up code base
     code_base = work_dir / "code"
-    clone_or_update_repo(code_base, args.git_commit)
+    clone_or_update_repo(code_base, git_commit)
 
     # Prepare template context
     template_path = code_base / "pipeline" / "pipeline_running" / "brca_pipeline_cfg.mk.j2"
@@ -258,7 +253,7 @@ Example usage:
         "WORK_DIR": str(work_dir),
         "CODE_BASE": str(code_base),
         "CREDENTIALS_PATH": str(credentials_path),
-        "GIT_COMMIT": args.git_commit,
+        "GIT_COMMIT": git_commit,
         "GENE_CONFIG_FILENAME": args.gene_config_filename,
     }
     if previous_release_dir is not None:
