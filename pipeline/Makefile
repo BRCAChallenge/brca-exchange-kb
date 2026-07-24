@@ -25,6 +25,10 @@ VCF_ASSEMBLY_SEQ_REPO_DIR ?= /data/seqrepo/latest
 VCF_ASSEMBLY_SEQ_REPO_ROOT ?= $(patsubst %/,%,$(dir $(VCF_ASSEMBLY_SEQ_REPO_DIR)))
 VCF_ASSEMBLY_GENE_CONFIG ?= $(PYTHONPATH_PIPELINE)/workflow/gene_config_brca_only.txt
 VCF_ASSEMBLY_UTA_DB_URL ?= postgresql://anonymous@localhost:50828/uta/uta_20241220
+# PostgreSQL schema for pipeline tables; matches PipelineParams.db_schema's
+# own default ('pipeline') unless overridden -- e.g. by brca_pipeline_cfg.mk,
+# which sets this to the work directory's name for a given release.
+VCF_ASSEMBLY_DB_SCHEMA ?= pipeline
 
 VCF_ANALYSIS_MODULE ?= workflow.variant_analysis
 VCF_ANALYSIS_ROOT_TASK ?= workflow.variant_analysis.VariantAnalysis
@@ -51,6 +55,7 @@ PIPELINE_ARGS := \
 	--PipelineParams-seq-repo-dir $(VCF_ASSEMBLY_SEQ_REPO_DIR) \
 	--PipelineParams-file-parent-dir $(VCF_ASSEMBLY_OUT_DIR) \
 	--PipelineParams-output-dir $(VCF_ASSEMBLY_OUT_DIR) \
+	--PipelineParams-db-schema $(VCF_ASSEMBLY_DB_SCHEMA) \
 	--workers $(LUIGI_WORKERS)
 
 RUN_TASK_CMD = $(LOCAL_PIPELINE_ENV) python -m luigi --module $(VCF_ANALYSIS_MODULE)

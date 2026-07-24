@@ -67,4 +67,9 @@ VCF_ASSEMBLY_OUT_DIR := $(OUT_DIR)
 VCF_ASSEMBLY_SEQ_REPO_DIR := $(SEQ_REPO_DIR)/latest
 VCF_ASSEMBLY_GENE_CONFIG := $(PYTHONPATH_PIPELINE)/workflow/{{ GENE_CONFIG_FILENAME|default("gene_config_brca_only.txt") }}
 VCF_ASSEMBLY_UTA_DB_URL := $(UTA_DB_URL)
+{% set DB_SCHEMA = DB_SCHEMA|default(WORK_DIR.rstrip("/").rsplit("/", 1)[-1]) %}
+# schema name matches the work directory's own name (e.g. data_release_2026_07_24);
+# generate_release.py builds WORK_DIR with underscores rather than DATA_DATE's
+# hyphenated ISO form so this is a valid unquoted Postgres identifier as-is.
+VCF_ASSEMBLY_DB_SCHEMA := {{ DB_SCHEMA }}
 VCF_ANALYSIS_GENOME_FA := $(RESOURCES_DIR)/hg38.fa
