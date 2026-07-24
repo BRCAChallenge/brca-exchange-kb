@@ -174,7 +174,7 @@ class ConvertLatestClinvarDataToXML(VCFAssemblyTask):
     def run(self):
         os.chdir(clinvar_method_dir)
         genes_opts = [s for g in self.cfg.gene_metadata['symbol'] for s in ['--gene', g]]
-        pipeline_utils.run_process(["python", "filter_clinvar.py",
+        pipeline_utils.run_process([sys.executable, "filter_clinvar.py",
                                     "-i", self.input().path,
                                     "-o", self.output().path] + genes_opts)
         pipeline_utils.check_file_for_contents(self.output().path)
@@ -187,7 +187,7 @@ class ConvertClinvarXMLToTXT(VCFAssemblyTask):
 
     def run(self):
         os.chdir(clinvar_method_dir)
-        args = ["python", "clinVarParse.py",
+        args = [sys.executable, "clinVarParse.py",
                 self.input().path,
                 "--logs", self.clinvar_file_dir + "/clinvar_xml_to_txt.log",
                 "--assembly", "GRCh38"]
@@ -202,7 +202,7 @@ class ConvertClinvarTXTToVCF(VCFAssemblyTask):
 
     def run(self):
         os.chdir(data_merging_method_dir)
-        args = ["python", "convert_tsv_to_vcf.py",
+        args = [sys.executable, "convert_tsv_to_vcf.py",
                 "-i", self.input().path,
                 "-o", self.output().path,
                 "-s", "ClinVar"]
@@ -325,7 +325,7 @@ class FilterEnigmaAssertions(VCFAssemblyTask):
 
     def run(self):
         os.chdir(clinvar_method_dir)
-        args = ["python", "filter_enigma_data.py",
+        args = [sys.executable, "filter_enigma_data.py",
                 self.input().path,
                 self.output().path]
         pipeline_utils.run_process(args)
@@ -340,7 +340,7 @@ class ExtractEnigmaFromClinvar(VCFAssemblyTask):
     def run(self):
         os.chdir(clinvar_method_dir)
         genes_opts = [s for g in self.cfg.gene_metadata['symbol'] for s in ['--gene', g]]
-        args = ["python", "enigma_from_clinvar.py",
+        args = [sys.executable, "enigma_from_clinvar.py",
                 self.input().path,
                 self.output().path,
                 '--logs', os.path.join(self.enigma_file_dir, 'enigma.log'),
@@ -355,7 +355,7 @@ class ConvertEnigmaToVCF(VCFAssemblyTask):
 
     def run(self):
         os.chdir(data_merging_method_dir)
-        args = ["python", "convert_tsv_to_vcf.py",
+        args = [sys.executable, "convert_tsv_to_vcf.py",
                 "-i", self.input().path,
                 "-o", self.output().path,
                 "-s", "ENIGMA"]
@@ -405,7 +405,7 @@ class ConvertFunctionalAssaysToVCF(VCFAssemblyTask):
 
     def run(self):
         os.chdir(functional_assays_method_dir)
-        args = ["python", "convert_functional_assay_tsv_to_vcf.py",
+        args = [sys.executable, "convert_functional_assay_tsv_to_vcf.py",
                 "-v", "-i", self.input().path,
                 "-o", self.output().path,
                 "-a", "functionalAssayAnnotation",
@@ -723,7 +723,7 @@ class LoadVCFsToDatabase(VCFAssemblyTask):
         enigma_in, clinvar_in, lovd_in, exlovd_in, gnomad_in, assays_in, gnomad_v41_in = self.input()
         gene_config = os.path.join(_pipeline_dir, 'workflow', 'gene_config_brca_only.txt')
         args = [
-            "python", "manage.py", "load_vcf", "--skip-checks",
+            sys.executable, "manage.py", "load_vcf", "--skip-checks",
             "--gene-config",             gene_config,
             "--enigma-vcf",              enigma_in["vcf"].path,
             "--enigma-pkl",              enigma_in["pkl"].path,
@@ -892,7 +892,7 @@ class ComputeGenomicHGVS(VCFAssemblyTask):
 
     def run(self):
         script = os.path.join(_pipeline_dir, "variant_analysis", "compute_genomic_hgvs.py")
-        args = ["python", script, "--schema", self.cfg.db_schema]
+        args = [sys.executable, script, "--schema", self.cfg.db_schema]
         self._run_process_with_pipeline_path(args)
         with open(self.output().path, "w") as f:
             f.write("done\n")
@@ -913,7 +913,7 @@ class QueryClinGenAlleleRegistry(VCFAssemblyTask):
 
     def run(self):
         script = os.path.join(_pipeline_dir, "variant_assembly", "query_clingen_allele_registry.py")
-        args = ["python", script, "--schema", self.cfg.db_schema]
+        args = [sys.executable, script, "--schema", self.cfg.db_schema]
         self._run_process_with_pipeline_path(args)
         with open(self.output().path, "w") as f:
             f.write("done\n")
@@ -944,7 +944,7 @@ class RunPseudonymGenerator(VCFAssemblyTask):
         script = os.path.join(_pipeline_dir, "variant_assembly", "pseudonym_generator.py")
         gene_config = os.path.join(_pipeline_dir, 'workflow', 'gene_config_brca_only.txt')
         args = [
-            "python", script,
+            sys.executable, script,
             "--db-url",    self.db_url,
             "--schema",    self.cfg.db_schema,
             "--configfile", gene_config,
@@ -999,7 +999,7 @@ class LoadVaraicoPapersToDatabase(VCFAssemblyTask):
     def run(self):
         vrs_in, filter_in, _, _, _, _ = self.input()
         args = [
-            "python", "manage.py", "add_varaico_papers", "--skip-checks",
+            sys.executable, "manage.py", "add_varaico_papers", "--skip-checks",
             "--raw-tsv",           filter_in["tsv"].path,
             "--vrs-annotated-vcf", vrs_in["vcf"].path,
         ]
