@@ -87,7 +87,8 @@ def run_command(
 
 def clone_or_update_repo(code_base: Path, git_commit: str) -> None:
     """
-    Clone the repository if it doesn't exist, then checkout the specified commit.
+    Clone the repository if it doesn't exist, then check out the specified
+    branch/commit/tag and fast-forward it to match origin.
 
     Args:
         code_base: Path where the code should be cloned
@@ -111,6 +112,18 @@ def clone_or_update_repo(code_base: Path, git_commit: str) -> None:
         # If direct checkout fails, try as a remote branch
         print(f"Direct checkout failed, trying origin/{git_commit}...")
         run_command(["git", "checkout", "-b", git_commit, f"origin/{git_commit}"], cwd=code_base)
+        return
+
+    # `git checkout` above is a no-op if code_base was already on this
+    # branch, so a reused work directory would otherwise keep running
+    # whatever commit it happened to be on -- even after the `git fetch`
+    # above -- silently ignoring newer commits on origin. Fast-forward
+    # explicitly to pick those up.
+    try:
+        run_command(["git", "merge", "--ff-only", f"origin/{git_commit}"], cwd=code_base)
+    except subprocess.CalledProcessError:
+        print(f"Note: no origin/{git_commit} to fast-forward from "
+              "(may be a tag or a specific commit) -- leaving as checked out.")
 
 
 def generate_config(
