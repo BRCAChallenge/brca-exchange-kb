@@ -32,6 +32,31 @@ def resolve_path(path: str) -> Path:
     return Path(path).resolve()
 
 
+def get_current_branch(script_dir: Path) -> str:
+    """
+    Determine the git branch of the checkout this script is running from,
+    so running from a feature branch deploys that branch by default rather
+    than silently falling back to master.
+
+    Falls back to "master" if the branch can't be determined (e.g. the
+    script isn't inside a git checkout, or HEAD is detached).
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=script_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        branch = result.stdout.strip()
+        if branch and branch != "HEAD":
+            return branch
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return "master"
+
+
 def run_command(
     cmd: list[str],
     cwd: Optional[Path] = None,
@@ -120,30 +145,29 @@ def generate_config(
     print(f"Configuration written to {output_path}")
 
 
-def run_pipeline(
-    code_base: Path,
-    gene_config_filename: str
-) -> None:
+def run_pipeline(code_base: Path) -> None:
     """
     Execute the pipeline build-release target.
 
+    The gene configuration is baked into the generated brca_pipeline_cfg.mk
+    (via GENE_CONFIG_FILENAME in the template context), not passed as a make
+    variable here -- the Makefile no longer reads a GENE_CONFIG_FILENAME
+    override directly.
+
     Args:
         code_base: Path to the code repository
-        gene_config_filename: Name of the gene configuration file
     """
     pipeline_dir = code_base / "pipeline"
 
     print("\nKicking off pipeline!")
-    print(f"Gene configuration: {gene_config_filename}")
 
-    run_command(
-        ["make", f"GENE_CONFIG_FILENAME={gene_config_filename}", "build-release"],
-        cwd=pipeline_dir
-    )
+    run_command(["make", "build-release"], cwd=pipeline_dir)
 
 
 def main() -> int:
     """Main entry point."""
+    default_git_commit = get_current_branch(Path(__file__).resolve().parent)
+
     parser = argparse.ArgumentParser(
         description="Generate a new BRCA Exchange data release",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -152,6 +176,7 @@ Example usage:
   %(prog)s /data/releases /data/credentials /data/previous_releases
   %(prog)s /data/releases /data/credentials /data/previous_releases gene_config_brca_hbop.txt v1.2.3
   %(prog)s /data/releases /data/credentials /data/previous_releases gene_config_brca_only.txt my-feature-branch
+  %(prog)s /data/releases /data/credentials  # no previous release to compare against
         """
     )
 
@@ -170,7 +195,10 @@ Example usage:
     parser.add_argument(
         "previous_release_dir",
         type=str,
-        help="Directory containing previous release for comparison"
+        nargs='?',
+        default=None,
+        help="Directory containing previous release for comparison "
+             "(optional; defaults to the working directory itself, i.e. no separate comparison dir)"
     )
 
     parser.add_argument(
@@ -185,8 +213,9 @@ Example usage:
         "git_commit",
         type=str,
         nargs='?',
-        default="master",
-        help="Git commit/branch/tag to checkout from GitHub (default: master)"
+        default=default_git_commit,
+        help="Git commit/branch/tag to checkout from GitHub "
+             f"(default: the branch this script is currently checked out on, '{default_git_commit}')"
     )
 
     args = parser.parse_args()
@@ -194,7 +223,7 @@ Example usage:
     # Resolve all paths to absolute
     root_dir = resolve_path(args.root_dir)
     credentials_path = resolve_path(args.credentials_path)
-    previous_release_dir = resolve_path(args.previous_release_dir)
+    previous_release_dir = resolve_path(args.previous_release_dir) if args.previous_release_dir else None
 
     # Generate data date and working directory
     data_date = datetime.now().strftime("%Y-%m-%d")
@@ -205,6 +234,7 @@ Example usage:
     print(f"Working Directory: {work_dir}")
     print(f"Gene Configuration: {args.gene_config_filename}")
     print(f"Git Commit: {args.git_commit}")
+    print(f"Previous Release Dir: {previous_release_dir or '(none -- defaulting to working directory)'}")
     print("=" * 40)
 
     # Create working directory
@@ -224,9 +254,11 @@ Example usage:
         "WORK_DIR": str(work_dir),
         "CODE_BASE": str(code_base),
         "CREDENTIALS_PATH": str(credentials_path),
-        "PREVIOUS_RELEASE_DIR": str(previous_release_dir),
         "GIT_COMMIT": args.git_commit,
+        "GENE_CONFIG_FILENAME": args.gene_config_filename,
     }
+    if previous_release_dir is not None:
+        context["PREVIOUS_RELEASE_DIR"] = str(previous_release_dir)
 
     # Generate configuration
     generate_config(template_path, config_path, context)
@@ -242,7 +274,7 @@ Example usage:
 
     # Run the pipeline
     try:
-        run_pipeline(code_base, args.gene_config_filename)
+        run_pipeline(code_base)
         print("\n" + "=" * 40)
         print("Pipeline completed successfully!")
         print("=" * 40)
