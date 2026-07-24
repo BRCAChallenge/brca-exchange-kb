@@ -16,6 +16,7 @@ Sources (in priority order for Variant fields):
   9. gnomAD v4.1 exome  → variant, genomic_coordinates, variant_gnomad, report_gnomad (data_type=exome)
 """
 
+import csv
 import pickle
 import re
 from pathlib import Path
@@ -65,8 +66,8 @@ def info_str(rec, key, default='-'):
         # A bare INFO key with no '=value' (e.g. 'frequency' alone in the
         # record) parses as an empty tuple rather than None; treat that the
         # same as absent.
-        return ','.join(str(v) for v in val) if val else default
-    return str(val)
+        return ','.join(str(v) for v in val).rstrip('\r') if val else default
+    return str(val).rstrip('\r')
 
 
 def alt_digest(rec):
@@ -150,6 +151,8 @@ class Command(BaseCommand):
     help = 'Load VRS-annotated VCF files into pipeline tables'
 
     def add_arguments(self, parser):
+        parser.add_argument('--gene-config', required=True,
+                            help='Path to gene config CSV (must have a "symbol" column)')
         for source in ('enigma', 'clinvar', 'lovd', 'exlovd',
                        'gnomad-v2', 'gnomad-v3',
                        'gnomad-v41-joint', 'gnomad-v41-exome',
@@ -158,6 +161,10 @@ class Command(BaseCommand):
             parser.add_argument(f'--{source}-pkl',  required=True, help=f'Path to {source} pickle (.dicts.pkl)')
 
     def handle(self, *args, **options):
+        with open(options['gene_config'], newline='') as f:
+            reader = csv.DictReader(f)
+            self._known_symbols = {row['symbol'] for row in reader}
+
         def paths(source):
             key = source.replace('-', '_')
             return Path(options[f'{key}_vcf']), Path(options[f'{key}_pkl'])
@@ -184,6 +191,17 @@ class Command(BaseCommand):
             self.stdout.write(str(n))
 
         self._print_summary()
+
+    def _filter_gene_symbol(self, raw):
+        """Return the first symbol in a comma-separated list that is in the gene config.
+        Falls back to raw if none match (e.g. a source we don't recognize)."""
+        if not raw or raw == '-':
+            return raw
+        for part in raw.split(','):
+            part = part.strip()
+            if part in self._known_symbols:
+                return part
+        return raw
 
     # ------------------------------------------------------------------
     # Flush
@@ -251,7 +269,7 @@ class Command(BaseCommand):
             variant, created = Variant.objects.using(DB).get_or_create(
                 VRS_Digest=d,
                 defaults={
-                    'Gene_Symbol':        info_str(rec, 'Gene_symbol'),
+                    'Gene_Symbol':        self._filter_gene_symbol(info_str(rec, 'Gene_symbol')),
                     'Reference_Sequence': info_str(rec, 'Reference_sequence'),
                     'HGVS_cDNA':          info_str(rec, 'HGVS_cDNA'),
                     'BIC_Nomenclature':   info_str(rec, 'BIC_Nomenclature'),
@@ -263,7 +281,7 @@ class Command(BaseCommand):
                 },
             )
             if not created:
-                variant.Gene_Symbol        = info_str(rec, 'Gene_symbol')
+                variant.Gene_Symbol        = self._filter_gene_symbol(info_str(rec, 'Gene_symbol'))
                 variant.Reference_Sequence = info_str(rec, 'Reference_sequence')
                 variant.HGVS_cDNA          = info_str(rec, 'HGVS_cDNA')
                 variant.BIC_Nomenclature   = info_str(rec, 'BIC_Nomenclature')
@@ -315,7 +333,7 @@ class Command(BaseCommand):
             )
 
             variant = self._upsert_variant(d, vrs_data,
-                Gene_Symbol=info_str(rec, 'Symbol'),
+                Gene_Symbol=self._filter_gene_symbol(info_str(rec, 'Symbol')),
                 Reference_Sequence='-', HGVS_cDNA='-', BIC_Nomenclature='-',
                 HGVS_Protein='-', Protein_Change='-',
                 Synonyms=info_str(rec, 'Synonyms'),
@@ -368,7 +386,7 @@ class Command(BaseCommand):
             )
 
             variant = self._upsert_variant(d, vrs_data,
-                Gene_Symbol=info_str(rec, 'geneid'),
+                Gene_Symbol=self._filter_gene_symbol(info_str(rec, 'geneid')),
                 Reference_Sequence='-',
                 HGVS_cDNA=info_str(rec, 'cDNA'),
                 BIC_Nomenclature='-', HGVS_Protein='-', Protein_Change='-',
@@ -418,11 +436,6 @@ class Command(BaseCommand):
             if not d:
                 continue
             vrs_data = pkl.get(alt_vrs_id(rec))
-            db_id = info_str(rec, 'db_id')
-            source_url = (
-                f'https://databases.lovd.nl/shared/variants/{db_id}'
-                if db_id != '-' else '-'
-            )
 
             variant = self._upsert_variant(d, vrs_data,
                 Gene_Symbol='-', Reference_Sequence='-',
@@ -443,22 +456,14 @@ class Command(BaseCommand):
             Variant_in_ExLOVD.objects.using(DB).get_or_create(
                 VRS_Digest=variant,
                 defaults={
-                    'Source_URL':                source_url,
-                    'Exon':                      info_str(rec, 'exon'),
-                    'DNA_Change':                info_str(rec, 'dna_change'),
-                    'BIC_DNA_Change':            info_str(rec, 'bic_dna_change'),
-                    'Protein_Change':            info_str(rec, 'protein_change'),
                     'Posterior_P':               info_str(rec, 'posterior_p'),
                     'IARC_Class':                info_str(rec, 'iarc_class'),
-                    'DBID':                      db_id,
                     'Missense_Analysis_Prior_P': info_str(rec, 'missense_analysis_prior_p'),
-                    'Splicing_Prior_P':          info_str(rec, 'splicing_prior_p'),
                     'Combined_Prior_P':          info_str(rec, 'combined_prior_p'),
                     'Segregation_LR':            info_str(rec, 'segregation_lr'),
                     'Pathology_LR':              info_str(rec, 'pathology_lr') or None,
                     'Co_Occurrence_LR':          info_str(rec, 'co_occurrence_lr'),
                     'Case_Control_LR':           info_str(rec, 'case_control_lr') or None,
-                    'Product_Of_LRs':            info_str(rec, 'product_of_lrs'),
                     'Comments':                  info_str(rec, 'key_observational_reference'),
                 },
             )
@@ -603,7 +608,7 @@ class Command(BaseCommand):
             vrs_data = pkl.get(alt_vrs_id(rec))
 
             variant = self._upsert_variant(d, vrs_data,
-                Gene_Symbol=info_str(rec, 'Gene'),
+                Gene_Symbol=self._filter_gene_symbol(info_str(rec, 'Gene')),
                 Reference_Sequence='-',
                 HGVS_cDNA=info_str(rec, 'HGVS_Nucleotide_Variant'),
                 BIC_Nomenclature='-', HGVS_Protein='-', Protein_Change='-',

@@ -19,12 +19,15 @@ Variants that already have a CA_ID are skipped unless --overwrite is set.
 """
 
 import logging
+import re
 import time
 
 import click
 import psycopg2
 import psycopg2.extras
 import requests
+
+_CA_ID_RE = re.compile(r'^CA\d+$')
 
 CLINGEN_URL = 'https://reg.clinicalgenome.org/allele'
 BATCH_SIZE = 500
@@ -59,18 +62,38 @@ def _query(session, hgvs):
 
 def _mane_select(data):
     """Return (nuc_refseq, nuc_ensembl, prot_refseq, prot_ensembl) from the
-    MANE Select transcript allele, or (None, None, None, None)."""
+    MANE Select transcript allele, or (None, None, None, None).
+
+    Protein HGVS is built from the NP_/ENSP_ accession in MANE.protein combined
+    with the correct p. notation from proteinEffect.hgvs.  ClinGen sometimes
+    stores n. (nucleotide) notation on the protein accession for intronic variants,
+    which is wrong; proteinEffect.hgvs always has the correct p. form.
+    """
     for ta in data.get('transcriptAlleles', []):
         mane = ta.get('MANE')
         if not mane or mane.get('maneStatus') != 'MANE Select':
             continue
         nuc  = mane.get('nucleotide', {})
         prot = mane.get('protein',    {})
+
+        nuc_refseq  = nuc.get('RefSeq',  {}).get('hgvs')
+        nuc_ensembl = nuc.get('Ensembl', {}).get('hgvs')
+
+        prot_effect = ta.get('proteinEffect', {}).get('hgvs')
+
+        prot_refseq_raw  = prot.get('RefSeq',  {}).get('hgvs')
+        prot_ensembl_raw = prot.get('Ensembl', {}).get('hgvs')
+
+        def _with_effect(raw, effect):
+            if raw and ':' in raw and effect:
+                return f'{raw.split(":", 1)[0]}:{effect}'
+            return raw
+
         return (
-            nuc.get('RefSeq',  {}).get('hgvs'),
-            nuc.get('Ensembl', {}).get('hgvs'),
-            prot.get('RefSeq',  {}).get('hgvs'),
-            prot.get('Ensembl', {}).get('hgvs'),
+            nuc_refseq,
+            nuc_ensembl,
+            _with_effect(prot_refseq_raw, prot_effect),
+            _with_effect(prot_ensembl_raw, prot_effect),
         )
     return None, None, None, None
 
@@ -144,7 +167,8 @@ def _extract(data, vrs_digest):
     """Return (ca_id, title, hgvs_cdna, ensembl_cdna, hgvs_protein,
     ensembl_protein, synonyms, coord_rows, gene_symbol) from a ClinGen response."""
     at_id = data.get('@id', '')
-    ca_id = at_id.rsplit('/', 1)[-1] if at_id else None
+    ca_id_raw = at_id.rsplit('/', 1)[-1] if at_id else None
+    ca_id = ca_id_raw if ca_id_raw and _CA_ID_RE.match(ca_id_raw) else None
 
     titles = data.get('communityStandardTitle')
     title = titles[0] if titles else None
@@ -221,6 +245,9 @@ def main(db_url, schema, overwrite):
 
             if ca_id:
                 ref_seq = hgvs_cdna.split(':')[0] if hgvs_cdna and ':' in hgvs_cdna else '-'
+                # Store only the c./n./g. part without the transcript accession prefix
+                if hgvs_cdna and ':' in hgvs_cdna:
+                    hgvs_cdna = hgvs_cdna.split(':', 1)[1]
                 variant_updates.append((
                     ca_id,
                     title or '-',

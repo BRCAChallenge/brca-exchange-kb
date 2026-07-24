@@ -720,8 +720,10 @@ class LoadVCFsToDatabase(VCFAssemblyTask):
 
     def run(self):
         enigma_in, clinvar_in, lovd_in, exlovd_in, gnomad_in, assays_in, gnomad_v41_in = self.input()
+        gene_config = os.path.join(_pipeline_dir, 'workflow', 'gene_config_brca_only.txt')
         args = [
             "python", "manage.py", "load_vcf", "--skip-checks",
+            "--gene-config",             gene_config,
             "--enigma-vcf",              enigma_in["vcf"].path,
             "--enigma-pkl",              enigma_in["pkl"].path,
             "--clinvar-vcf",             clinvar_in["vcf"].path,

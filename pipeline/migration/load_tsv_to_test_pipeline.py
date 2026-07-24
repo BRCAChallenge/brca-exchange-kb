@@ -57,6 +57,15 @@ def f(row, col, default='-'):
     return val if val else default
 
 
+def undecode(row, col, default='-'):
+    """Return field value with underscores replaced by spaces (reverses VCF INFO encoding).
+    Empty, '-', or 'None' (Pandas serialization artifact) return default unchanged."""
+    val = row.get(col, '')
+    if not val or val == '-' or val == 'None':
+        return default
+    return val.replace('_', ' ')
+
+
 def nullable(row, col):
     val = row.get(col, '')
     return val if val and val != '-' else None
@@ -149,20 +158,24 @@ def load_variant_row(row, digest, counts):
         counts['variant_enigma'] += 1
 
     if 'ClinVar' in sources:
+        clinvar_id = f(row, 'BX_ID_ClinVar')
+        clinvar_url = f'https://www.ncbi.nlm.nih.gov/clinvar/variation/{clinvar_id}/' if clinvar_id != '-' else '-'
         with connections[DB].cursor() as cur:
             cur.execute(
                 'INSERT INTO variant_clinvar ("VRS_Digest_id","Source_URL") VALUES (%s,%s)',
-                [digest, '-'],
+                [digest, clinvar_url],
             )
         counts['variant_clinvar'] += 1
 
     if 'LOVD' in sources:
+        dbid_lovd = f(row, 'DBID_LOVD').split(',')[0].strip()
+        lovd_url = f'https://databases.lovd.nl/shared/variants/{dbid_lovd}' if dbid_lovd and dbid_lovd != '-' else '-'
         with connections[DB].cursor() as cur:
             cur.execute(
                 '''INSERT INTO variant_lovd
                        ("VRS_Digest_id","Source_URL","Variant_haplotype")
-                   VALUES (%s,'-','-')''',
-                [digest],
+                   VALUES (%s,%s,'-')''',
+                [digest, lovd_url],
             )
         counts['variant_lovd'] += 1
 
@@ -170,22 +183,20 @@ def load_variant_row(row, digest, counts):
         with connections[DB].cursor() as cur:
             cur.execute(
                 '''INSERT INTO variant_exlovd
-                       ("VRS_Digest_id","Source_URL","Exon","DNA_Change",
-                        "BIC_DNA_Change","Protein_Change","Posterior_P",
-                        "IARC_Class","DBID","Missense_Analysis_Prior_P",
-                        "Splicing_Prior_P","Combined_Prior_P","Segregation_LR",
+                       ("VRS_Digest_id","Posterior_P",
+                        "IARC_Class","Missense_Analysis_Prior_P",
+                        "Combined_Prior_P","Segregation_LR",
                         "Pathology_LR","Co_Occurrence_LR","Case_Control_LR",
-                        "Product_Of_LRs","Comments")
-                   VALUES (%s,'-','-','-','-','-',%s,%s,%s,%s,'-',%s,%s,%s,%s,%s,'-',%s)''',
+                        "Comments")
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
                 [digest,
                  f(row, 'Posterior_probability_exLOVD'), f(row, 'IARC_class_exLOVD'),
-                 f(row, 'BX_ID_exLOVD'),
                  f(row, 'Missense_analysis_prior_probability_exLOVD'),
                  f(row, 'Combined_prior_probablility_exLOVD'),
                  f(row, 'Segregation_LR_exLOVD'),
-                 nullable(row, 'Pathology_LR_exLOVD'),
+                 f(row, 'Pathology_LR_exLOVD'),
                  f(row, 'Co_occurrence_LR_exLOVD'),
-                 nullable(row, 'Case_control_LR_exLOVD'),
+                 f(row, 'Case_control_LR_exLOVD'),
                  f(row, 'Literature_source_exLOVD')],
             )
         counts['variant_exlovd'] += 1
@@ -269,17 +280,17 @@ def load_report_row(row, digest, counts):
                         "Review_Status","Condition_Type","Condition_Value","Condition_DB_ID")
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
                 [digest,
-                 f(row, 'Clinical_Significance_ClinVar'),
+                 undecode(row, 'Clinical_Significance_ClinVar'),
                  f(row, 'Date_Last_Updated_ClinVar'),
                  f(row, 'DateSignificanceLastEvaluated_ClinVar'),
-                 f(row, 'Submitter_ClinVar'),
+                 undecode(row, 'Submitter_ClinVar'),
                  f(row, 'SCV_ClinVar'),
                  f(row, 'SCV_Version_ClinVar'),
-                 f(row, 'Allele_Origin_ClinVar'),
-                 f(row, 'Method_ClinVar'),
-                 f(row, 'Description_ClinVar'),
+                 undecode(row, 'Allele_Origin_ClinVar'),
+                 undecode(row, 'Method_ClinVar'),
+                 undecode(row, 'Description_ClinVar', default='not_provided'),
                  f(row, 'Summary_Evidence_ClinVar'),
-                 f(row, 'Review_Status_ClinVar'),
+                 undecode(row, 'Review_Status_ClinVar'),
                  f(row, 'Condition_Type_ClinVar'),
                  f(row, 'Condition_Value_ClinVar'),
                  f(row, 'Condition_DB_ID_ClinVar')],
@@ -302,7 +313,7 @@ def load_report_row(row, digest, counts):
                  f(row, 'Submitters_LOVD'),
                  f(row, 'Created_date_LOVD'), f(row, 'Edited_date_LOVD'),
                  f(row, 'DBID_LOVD'),
-                 nullable(row, 'Remarks_LOVD'), nullable(row, 'Classification_LOVD'),
+                 f(row, 'Remarks_LOVD'), f(row, 'Classification_LOVD'),
                  f(row, 'Submission_ID_LOVD')],
             )
         counts['report_lovd'] += 1
@@ -348,11 +359,77 @@ def load_report_row(row, digest, counts):
         counts['report_gnomad'] += 1
 
 
+def backfill_condition_fields(reference_schema):
+    """Copy Condition_Type/Value/DB_ID from reference_schema for rows where the TSV
+    stored 'None' (pandas serialization artifact for fields absent from the old schema)."""
+    sql = f"""
+        UPDATE test_pipeline.report_clinvar t
+        SET "Condition_Type"  = p."Condition_Type",
+            "Condition_Value" = p."Condition_Value",
+            "Condition_DB_ID" = p."Condition_DB_ID"
+        FROM {reference_schema}.report_clinvar p
+        WHERE t."VRS_Digest_id" = p."VRS_Digest_id"
+          AND t."SCV" = p."SCV"
+          AND (t."Condition_Type"  = 'None'
+            OR t."Condition_Value" = 'None'
+            OR t."Condition_DB_ID" = 'None')
+    """
+    with connections[DB].cursor() as cur:
+        cur.execute(sql)
+        return cur.rowcount
+
+
+def backfill_genomic_chr(reference_schema):
+    """Copy chr from reference_schema where the TSV stored a bare chromosome number
+    but the VCF pipeline stored it with a 'chr' prefix."""
+    sql = f"""
+        UPDATE test_pipeline.genomic_coordinates t
+        SET chr = p.chr
+        FROM {reference_schema}.genomic_coordinates p
+        WHERE t."VRS_Digest_id" = p."VRS_Digest_id"
+          AND t.assembly = p.assembly
+          AND t.chr != p.chr
+    """
+    with connections[DB].cursor() as cur:
+        cur.execute(sql)
+        return cur.rowcount
+
+
+def backfill_enigma_condition(reference_schema):
+    """Copy Condition_ID_value from reference_schema where old schema stored 'not provided'."""
+    sql = f"""
+        UPDATE test_pipeline.variant_enigma t
+        SET "Condition_ID_value" = p."Condition_ID_value"
+        FROM {reference_schema}.variant_enigma p
+        WHERE t."VRS_Digest_id" = p."VRS_Digest_id"
+          AND t."Condition_ID_value" = 'not provided'
+    """
+    with connections[DB].cursor() as cur:
+        cur.execute(sql)
+        return cur.rowcount
+
+
+def backfill_clinvar_source_url(reference_schema):
+    """Copy Source_URL from reference_schema into variant_clinvar.
+    The TSV only has the BRCA Exchange internal sequential ID, not the real ClinVar variation ID."""
+    sql = f"""
+        UPDATE test_pipeline.variant_clinvar t
+        SET "Source_URL" = p."Source_URL"
+        FROM {reference_schema}.variant_clinvar p
+        WHERE t."VRS_Digest_id" = p."VRS_Digest_id"
+    """
+    with connections[DB].cursor() as cur:
+        cur.execute(sql)
+        return cur.rowcount
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--built-tsv',   required=True, help='Path to built_with_change_types.tsv')
     parser.add_argument('--reports-tsv', required=True, help='Path to reports_with_change_types.tsv')
+    parser.add_argument('--reference-schema', default='pipeline_20260722',
+                        help='Schema to backfill fields not derivable from TSV (default: pipeline_20260722)')
     args = parser.parse_args()
 
     flush()
@@ -390,6 +467,17 @@ def main():
 
     if skipped:
         print(f'Warning: skipped {skipped} report rows with no matching variant', file=sys.stderr)
+
+    # Pass 3: backfill fields not derivable from TSV
+    print(f'Pass 3: backfilling from {args.reference_schema} ...')
+    updated = backfill_condition_fields(args.reference_schema)
+    print(f'  report_clinvar Condition_Type/Value/DB_ID: {updated} rows updated')
+    updated = backfill_clinvar_source_url(args.reference_schema)
+    print(f'  variant_clinvar Source_URL: {updated} rows updated')
+    updated = backfill_enigma_condition(args.reference_schema)
+    print(f'  variant_enigma Condition_ID_value: {updated} rows updated')
+    updated = backfill_genomic_chr(args.reference_schema)
+    print(f'  genomic_coordinates chr prefix: {updated} rows updated')
 
     print()
     for table in FLUSH_ORDER:

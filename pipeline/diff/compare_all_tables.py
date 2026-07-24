@@ -58,7 +58,7 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _COMPARE = os.path.join(_SCRIPT_DIR, 'compare_table.py')
 
 TABLES = [
-    dict(table='variant',              pk=None, omit=None),
+    dict(table='variant',              pk=None, omit=['Synonyms', 'VRS', 'ensembl_cdna', 'ensembl_protein', 'title']),
     dict(table='genomic_coordinates',  pk=['VRS_Digest_id', 'assembly'], omit=['id']),
     dict(table='variant_gnomad', pk=None, omit=None),
     dict(table='report_gnomad',  pk=['VRS_Digest_id', 'version', 'data_type'], omit=['id']),

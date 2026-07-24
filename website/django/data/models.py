@@ -155,22 +155,14 @@ class Variant_in_ExLOVD(models.Model):
     """exLOVD expert-curated BRCA1/2 data for a variant."""
     VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='exlovd_data')
 
-    Source_URL = models.TextField(default='-')
-    Exon = models.TextField(default='-')
-    DNA_Change = models.TextField(default='-')
-    BIC_DNA_Change = models.TextField(default='-')
-    Protein_Change = models.TextField(default='-')
     Posterior_P = models.TextField(default='-')
     IARC_Class = models.TextField(default='-')
-    DBID = models.TextField(default='-')
     Missense_Analysis_Prior_P = models.TextField(default='-')
-    Splicing_Prior_P = models.TextField(default='-')
     Combined_Prior_P = models.TextField(default='-')
     Segregation_LR = models.TextField(default='-')
     Pathology_LR = models.TextField(null=True)
     Co_Occurrence_LR = models.TextField(default='-')
     Case_Control_LR = models.TextField(null=True)
-    Product_Of_LRs = models.TextField(default='-')
     Comments = models.TextField(default='-')
 
     class Meta:
