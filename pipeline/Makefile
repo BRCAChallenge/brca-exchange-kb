@@ -44,6 +44,15 @@ endif
 
 LUIGI_ROOT_TASK = $(VCF_ANALYSIS_ROOT_TASK)
 LUIGI_WORKERS = 8
+LUIGI_LOG_LEVEL ?= WARNING
+
+# run-pipeline's log destination -- a timestamped file under a tmp dir beneath
+# this release's root (LOG_DIR defaults to WORK_DIR; see brca_pipeline_cfg.mk.j2).
+# Override PIPELINE_LOG explicitly (e.g. from generate_release.py) to agree on
+# the exact path up front rather than parsing it back out of `make` output --
+# its directory is created from wherever it actually points, so overriding
+# just this one variable is always enough.
+PIPELINE_LOG ?= $(LOG_DIR)/tmp/luigi_run_$(shell date +%Y%m%d_%H%M%S).log
 
 LOCAL_PIPELINE_ENV = \
 	HGVS_SEQREPO_DIR=$(VCF_ASSEMBLY_SEQ_REPO_DIR) \
@@ -137,7 +146,19 @@ download-seqrepo: ## Download seq repo data locally (no Docker; seqrepo pull ski
 	mkdir -p $(VCF_ASSEMBLY_SEQ_REPO_ROOT)
 	seqrepo -v --root-directory $(VCF_ASSEMBLY_SEQ_REPO_ROOT) pull --update-latest
 
-run-pipeline: run-variant-analysis ## running the current luigi pipeline locally (no Docker)
+run-pipeline: ## Run the current luigi pipeline locally (no Docker); output logged to PIPELINE_LOG, not the console
+	mkdir -p $(dir $(PIPELINE_LOG))
+	@echo "Pipeline log: $(PIPELINE_LOG)"
+	PATH=$(HOME)/bin:$(PATH) \
+	$(LOCAL_PIPELINE_ENV) \
+	python -m luigi --module $(VCF_ANALYSIS_MODULE) $(VCF_ANALYSIS_ROOT_TASK) \
+		$(PIPELINE_ARGS) \
+		--vep-server-url $(VCF_ANALYSIS_VEP_SERVER_URL) \
+		--genome-fa $(VCF_ANALYSIS_GENOME_FA) \
+		$(VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF_FLAG) \
+		--local-scheduler \
+		--log-level $(LUIGI_LOG_LEVEL) \
+		> $(PIPELINE_LOG) 2>&1
 
 # If the first argument is "run-task"...
 # https://stackoverflow.com/questions/2214575/passing-arguments-to-make-run
