@@ -158,23 +158,55 @@ def generate_config(
     print(f"Configuration written to {output_path}")
 
 
-def run_pipeline(code_base: Path) -> None:
+def spawn_pipeline(code_base: Path, work_dir: Path) -> Path:
     """
-    Execute the pipeline build-release target.
+    Launch the pipeline build-release target in the background and return
+    immediately -- this does not wait for the pipeline to finish.
 
     The gene configuration is baked into the generated brca_pipeline_cfg.mk
     (via GENE_CONFIG_FILENAME in the template context), not passed as a make
     variable here -- the Makefile no longer reads a GENE_CONFIG_FILENAME
     override directly.
 
+    Luigi's own output (the slow part) is logged by the Makefile's
+    run-pipeline target to PIPELINE_LOG, computed here so the caller can
+    display it immediately without waiting on or parsing `make`'s output.
+    The rest of build-release's own output (checkout, resource downloads,
+    docker service startup, ...) goes to a separate build-release log rather
+    than being discarded, since that's where any early, fast-failing setup
+    problems would show up.
+
     Args:
         code_base: Path to the code repository
+        work_dir: This release's working directory (logs live under a tmp/
+            subdirectory of it)
+
+    Returns:
+        Path to the log file the running Luigi pipeline is writing to.
     """
     pipeline_dir = code_base / "pipeline"
 
-    print("\nKicking off pipeline!")
+    log_dir = work_dir / "tmp"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    pipeline_log = log_dir / f"luigi_run_{timestamp}.log"
+    build_release_log = log_dir / f"build_release_{timestamp}.log"
 
-    run_command(["make", "build-release"], cwd=pipeline_dir)
+    print(f"\nKicking off pipeline! (spawned in the background, not waiting)")
+    cmd = ["make", f"PIPELINE_LOG={pipeline_log}", "build-release"]
+    print(f"Running: {' '.join(cmd)}")
+    print(f"build-release log: {build_release_log}")
+    with open(build_release_log, "w") as log_fh:
+        subprocess.Popen(
+            cmd,
+            cwd=pipeline_dir,
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+    return pipeline_log
 
 
 def main() -> int:
@@ -284,19 +316,20 @@ Example usage:
     print(f"  cd {code_base / 'pipeline'} && make [cmd]")
     print("=" * 40)
 
-    # Run the pipeline
+    # Launch the pipeline in the background. build-release (particularly the
+    # actual Luigi run within it) can take hours, so we don't wait for it --
+    # just report where to watch it.
     try:
-        run_pipeline(code_base)
-        print("\n" + "=" * 40)
-        print("Pipeline completed successfully!")
-        print("=" * 40)
-        return 0
-    except subprocess.CalledProcessError as e:
-        print(f"\nError: Pipeline failed with exit code {e.returncode}", file=sys.stderr)
-        return e.returncode
-    except KeyboardInterrupt:
-        print("\n\nInterrupted by user", file=sys.stderr)
-        return 130
+        pipeline_log = spawn_pipeline(code_base, work_dir)
+    except OSError as e:
+        print(f"\nError: could not launch the pipeline: {e}", file=sys.stderr)
+        return 1
+
+    print("\n" + "=" * 40)
+    print("Pipeline launched in the background (not waiting for it to finish).")
+    print(f"Follow its progress with:\n  tail -f {pipeline_log}")
+    print("=" * 40)
+    return 0
 
 
 if __name__ == "__main__":
