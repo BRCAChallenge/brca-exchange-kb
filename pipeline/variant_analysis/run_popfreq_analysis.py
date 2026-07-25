@@ -59,51 +59,70 @@ class PopfreqConfig:
     small_indel_size_threshold:   int   = _SMALL_INDEL_SIZE_THRESHOLD
     allele_count_threshold:       int   = ALLELE_COUNT_RARE_VARIANT_THRESHOLD
     use_lcr:                      bool  = True
+    # Whether a missing allele count (variant not observed at all) suggests the
+    # variant is absent from gnomAD, i.e. not convincingly present. Unchanged
+    # from historical behavior; exposed here as an explicit, named setting.
+    missing_allele_count_suggests_absence: bool = True
+    # Whether a variant with no computed FAF at all is treated as suggesting
+    # absence, so it remains a PM2_Supporting candidate regardless of allele
+    # count. False (the legacy popfreq_1.2 behavior) by default -- an allele
+    # count above allele_count_threshold blocks PM2_Supporting even when no
+    # FAF was computed; popfreq_1.3 opts in explicitly via --missing-faf-suggests-absence.
+    missing_faf_suggests_absence: bool = False
 
-    def ba1_msg(self, faf, pop, ac, an):
+    def ba1_msg(self, faf, pop, ac, an, gnomad_label):
         return (
             f"The Total GrpMax filtering allele frequency (the lower threshold of the 95%% CI) "
-            f"in gnomAD v4.1 is {faf} in the {pop} genetic ancestry group (based on {ac}/{an} alleles) "
+            f"in {gnomad_label} is {faf} in the {pop} genetic ancestry group (based on {ac}/{an} alleles) "
             f"which is above the ENIGMA BRCA1/2 VCEP threshold (>{self.ba1_faf_threshold}) for BA1 (BA1 met)."
         )
 
-    def bs1_msg(self, faf, pop, ac, an):
+    def bs1_msg(self, faf, pop, ac, an, gnomad_label):
         return (
             f"The Total GrpMax filtering allele frequency (the lower threshold of the 95%% CI) "
-            f"in gnomAD v4.1 is {faf} in the {pop} genetic ancestry group (based on {ac}/{an} alleles) "
+            f"in {gnomad_label} is {faf} in the {pop} genetic ancestry group (based on {ac}/{an} alleles) "
             f"which is above the ENIGMA BRCA1/2 VCEP threshold (>{self.bs1_faf_threshold}) for BS1, "
             f"and below the BA1 threshold (>{self.ba1_faf_threshold}) (BS1 met)."
         )
 
-    def bs1_supporting_msg(self, faf, pop, ac, an):
+    def bs1_supporting_msg(self, faf, pop, ac, an, gnomad_label):
         return (
             f"The Total GrpMax filtering allele frequency (the lower threshold of the 95%% CI) "
-            f"in gnomAD v4.1 is {faf} in the {pop} genetic ancestry group (based on {ac}/{an} alleles) "
+            f"in {gnomad_label} is {faf} in the {pop} genetic ancestry group (based on {ac}/{an} alleles) "
             f"which is above the ENIGMA BRCA1/2 VCEP threshold (>{self.rare_variant_faf_threshold}) "
             f"for BS1_Supporting, and below the BS1 threshold (>{self.bs1_faf_threshold}) (BS1_Supporting met)."
         )
 
-    def no_code_met_msg(self, faf, pop, ac, an):
+    def no_code_met_msg(self, faf, pop, ac, an, gnomad_label):
         return (
             f"The Total GrpMax filtering allele frequency (the lower threshold of the 95%% CI) "
-            f"in gnomAD v4.1 is {faf} in the {pop} genetic ancestry group (based on {ac}/{an} alleles) "
+            f"in {gnomad_label} is {faf} in the {pop} genetic ancestry group (based on {ac}/{an} alleles) "
             f"which is below the ENIGMA BRCA1/2 VCEP threshold (>{self.bs1_supporting_faf_threshold}) "
             f"for BS1_Supporting and does not meet any population code "
             f"(BA1, BS1, BS1_Supporting, PM2_Supporting are not met)."
         )
 
 
-NO_CODE_NO_FAF_MSG = (
-    "This variant is recorded in gnomAD v4.1, however the Total GrpMax filtering allele frequency "
-    "(the lower threshold of the 95% CI) was not calculated, therefore this variant does not meet "
-    "any population code (BA1, BS1, BS1_Supporting, PM2_Supporting are not met)."
-)
-NO_CODE_INDEL_MSG = (
-    "This [duplication/insertion/deletion/delins/large genomic rearrangement] variant "
-    "was not observed in gnomAD v4.1, but PM2_Supporting was not applied since recall "
-    "is considered suboptimal for this type of variant (PM2_Supporting not met). "
-)
-PM2_SUPPORTING_MSG = "This variant is absent from gnomAD v4.1 (PM2_Supporting met)."
+def no_code_no_faf_msg(gnomad_label):
+    return (
+        f"This variant is recorded in {gnomad_label}, however the Total GrpMax filtering allele frequency "
+        "(the lower threshold of the 95% CI) was not calculated, therefore this variant does not meet "
+        "any population code (BA1, BS1, BS1_Supporting, PM2_Supporting are not met)."
+    )
+
+
+def no_code_indel_msg(gnomad_label):
+    return (
+        "This [duplication/insertion/deletion/delins/large genomic rearrangement] variant "
+        f"was not observed in {gnomad_label}, but PM2_Supporting was not applied since recall "
+        "is considered suboptimal for this type of variant (PM2_Supporting not met). "
+    )
+
+
+def pm2_supporting_msg(gnomad_label):
+    return f"This variant is absent from {gnomad_label} (PM2_Supporting met)."
+
+
 FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG_MSG = (
     f"This variant is present in gnomAD but is not meeting the "
     f"specified read depths threshold ≥{READ_DEPTH_THRESHOLD_FREQUENT_VARIANT} "
@@ -256,7 +275,7 @@ def analyze_one_dataset(faf95_popmax_str, allele_count, snv_or_small_indel,
                         chrom, genome_start, genome_end, lcr,
                         faf95_popmax, faf95_popmax_population,
                         allele_count_pop, allele_number_pop,
-                        config: PopfreqConfig, debug=True):
+                        config: PopfreqConfig, gnomad_label, debug=True):
     if vcf_filter_flag:
         return(FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG, FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG_MSG)
     rare_variant = False
@@ -281,42 +300,46 @@ def analyze_one_dataset(faf95_popmax_str, allele_count, snv_or_small_indel,
         if debug:
             print("Not rare variant.  FAF:", faf)
         if faf > config.ba1_faf_threshold:
-            return(BA1, config.ba1_msg(faf95_popmax, faf95_popmax_population, allele_count_pop, allele_number_pop))
+            return(BA1, config.ba1_msg(faf95_popmax, faf95_popmax_population, allele_count_pop, allele_number_pop, gnomad_label))
         elif faf > config.bs1_faf_threshold:
-            return(BS1, config.bs1_msg(faf95_popmax, faf95_popmax_population, allele_count_pop, allele_number_pop))
+            return(BS1, config.bs1_msg(faf95_popmax, faf95_popmax_population, allele_count_pop, allele_number_pop, gnomad_label))
         elif faf > config.bs1_supporting_faf_threshold:
-            return(BS1_SUPPORTING, config.bs1_supporting_msg(faf95_popmax, faf95_popmax_population, allele_count_pop, allele_number_pop))
+            return(BS1_SUPPORTING, config.bs1_supporting_msg(faf95_popmax, faf95_popmax_population, allele_count_pop, allele_number_pop, gnomad_label))
         else:
-            return(NO_CODE, config.no_code_met_msg(faf95_popmax, faf95_popmax_population, allele_count_pop, allele_number_pop))
+            return(NO_CODE, config.no_code_met_msg(faf95_popmax, faf95_popmax_population, allele_count_pop, allele_number_pop, gnomad_label))
     if debug:
         print("Rare variant.  Allele count", allele_count, "SNV", snv_or_small_indel)
     if not field_defined(allele_count):
-        meets_allele_count_threshold = False
+        variant_convincingly_present = not config.missing_allele_count_suggests_absence
     elif int(allele_count) <= allele_count_threshold:
-        meets_allele_count_threshold = False
+        variant_convincingly_present = False
     else:
-        meets_allele_count_threshold = True
-    if meets_allele_count_threshold:
+        variant_convincingly_present = True
+    if not field_defined(faf95_popmax_str) and config.missing_faf_suggests_absence:
+        variant_convincingly_present = False
+    if variant_convincingly_present:
         if field_defined(faf95_popmax_str):
-            return(NO_CODE, NO_CODE_NO_FAF_MSG)
+            return(NO_CODE, no_code_no_faf_msg(gnomad_label))
         else:
-            return(NO_CODE, config.no_code_met_msg(faf95_popmax, faf95_popmax_population, allele_count_pop, allele_number_pop))
+            return(NO_CODE, config.no_code_met_msg(faf95_popmax, faf95_popmax_population, allele_count_pop, allele_number_pop, gnomad_label))
     if config.use_lcr and lcr is not None:
         if overlaps_lcr(chrom, genome_start, genome_end, lcr):
             return(FAIL_LCR, FAIL_LCR_MSG)
     if snv_or_small_indel:
-        return(PM2_SUPPORTING, PM2_SUPPORTING_MSG)
+        return(PM2_SUPPORTING, pm2_supporting_msg(gnomad_label))
     else:
-        return(NO_CODE_INDEL, NO_CODE_INDEL_MSG)
+        return(NO_CODE_INDEL, no_code_indel_msg(gnomad_label))
 
 
 def _compute_evidence_code(hgvs_cdna, chr_, pos, ref, alt,
                             gnomad_flags, gnomad_allele_count,
                             gnomad_faf95, gnomad_faf95_population,
-                            coverage_datasets, lcr, config: PopfreqConfig, debug=False):
+                            coverage_datasets, coverage_meta, lcr, config: PopfreqConfig, debug=False):
     """Compute the popfreq evidence code for one variant from DB row fields.
 
     coverage_datasets is a list of coverage dicts tried in priority order.
+    coverage_meta is the parallel list of (gnomad_version, gnomad_data_type)
+    tuples, used to name the actual gnomAD dataset in evidence-code messages.
     The first dataset that is sufficient for the variant is used. If none is
     sufficient, FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG is returned.
     """
@@ -370,6 +393,9 @@ def _compute_evidence_code(hgvs_cdna, chr_, pos, ref, alt,
     if debug:
         print(f'    read_depth={read_depth}')
 
+    gnomad_version, _gnomad_data_type = coverage_meta[used_dataset_idx]
+    gnomad_label = f"gnomAD {gnomad_version}"
+
     # Per-population allele counts are not stored in the DB; '-' is used as placeholder
     # in the message text only (does not affect code assignment logic).
     code, msg = analyze_one_dataset(
@@ -379,6 +405,7 @@ def _compute_evidence_code(hgvs_cdna, chr_, pos, ref, alt,
         faf95, faf95_pop,
         '-', '-',
         config=config,
+        gnomad_label=gnomad_label,
         debug=debug,
     )
 
@@ -473,10 +500,16 @@ WHERE v."VRS_Digest" = %s
               show_default=True, help='Allele count above which PM2_Supporting is not assigned for rare variants')
 @click.option('--no-lcr', is_flag=True, default=False,
               help='Disable LCR filtering (PM2_Supporting may be assigned regardless of LCR overlap)')
+@click.option('--missing-faf-suggests-absence', is_flag=True, default=False,
+              help='popfreq_1.3 behavior: treat a variant with no computed FAF at all as suggesting '
+                   'absence, so it remains a PM2_Supporting candidate regardless of allele count. '
+                   'By default (legacy popfreq_1.2 behavior), an allele count above the rare-variant '
+                   'threshold blocks PM2_Supporting even when no FAF was computed.')
 def main(db_url, schema, coverage_v4_joint, coverage_v4_exome, coverage_v3_genome,
          lcr, overwrite, debug, dry_run, vrs_digest, method_name,
          bs1_supporting_faf_threshold, rare_variant_faf_threshold,
-         small_indel_size_threshold, allele_count_rare_variant_threshold, no_lcr):
+         small_indel_size_threshold, allele_count_rare_variant_threshold, no_lcr,
+         missing_faf_suggests_absence):
     logging.basicConfig(level=logging.WARNING, format='%(levelname)s %(message)s')
 
     if debug:
@@ -488,6 +521,7 @@ def main(db_url, schema, coverage_v4_joint, coverage_v4_exome, coverage_v3_genom
         small_indel_size_threshold=small_indel_size_threshold,
         allele_count_threshold=allele_count_rare_variant_threshold,
         use_lcr=not no_lcr,
+        missing_faf_suggests_absence=missing_faf_suggests_absence,
     )
 
     coverage_datasets = []
@@ -536,7 +570,7 @@ def main(db_url, schema, coverage_v4_joint, coverage_v4_exome, coverage_v3_genom
             code, msg, dataset_idx = _compute_evidence_code(
                 hgvs_cdna, chr_, pos, ref, alt,
                 flags, allele_count, faf95, faf95_pop,
-                coverage_datasets, lcr_data, config=config, debug=debug,
+                coverage_datasets, coverage_meta, lcr_data, config=config, debug=debug,
             )
             if dataset_idx is not None:
                 gnomad_version, gnomad_data_type = coverage_meta[dataset_idx]
