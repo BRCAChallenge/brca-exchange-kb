@@ -1,4 +1,5 @@
 import os
+import sys
 
 import luigi
 from luigi.util import requires
@@ -29,7 +30,7 @@ class AnalyzeVEP(VCFAssemblyTask):
 
     def run(self):
         script = os.path.join(_pipeline_dir, 'variant_analysis', 'run_vep_analysis.py')
-        args = ['python', script, '--vep-url', self.vep_server_url, '--schema', self.cfg.db_schema]
+        args = [sys.executable, script, '--vep-url', self.vep_server_url, '--schema', self.cfg.db_schema]
         self._run_process_with_pipeline_path(args)
         with open(self.output().path, 'w') as f:
             f.write('done\n')
@@ -65,7 +66,7 @@ class AnalyzeBayesDel(VCFAssemblyTask):
     def run(self):
         _, victor_vcf = self.input()
         script = os.path.join(_pipeline_dir, 'variant_analysis', 'run_bayesdel_analysis.py')
-        args = ['python', script, '--victor-vcf', victor_vcf.path, '--schema', self.cfg.db_schema]
+        args = [sys.executable, script, '--victor-vcf', victor_vcf.path, '--schema', self.cfg.db_schema]
         self._run_process_with_pipeline_path(args)
         with open(self.output().path, 'w') as f:
             f.write('done\n')
@@ -84,7 +85,7 @@ class ExportVariantsToVCF(VCFAssemblyTask):
 
     def run(self):
         script = os.path.join(_pipeline_dir, 'variant_analysis', 'export_variants_to_vcf.py')
-        args = ['python', script, '--output', self.output().path, '--schema', self.cfg.db_schema]
+        args = [sys.executable, script, '--output', self.output().path, '--schema', self.cfg.db_schema]
         self._run_process_with_pipeline_path(args)
 
 
@@ -113,7 +114,7 @@ class GenerateSpliceAIScores(VCFAssemblyTask):
         script = os.path.join(_pipeline_dir, 'insilico', 'add_spliceai_scores_for_new_variants.py')
         tmp_dir = tempfile.mkdtemp()
         args = [
-            'python', script,
+            sys.executable, script,
             '-a', self.input().path,
             '-b', str(self.spliceai_batch_size),
             '-d', str(self.spliceai_depth),
@@ -136,7 +137,7 @@ class AnalyzeSpliceAI(VCFAssemblyTask):
 
     def run(self):
         script = os.path.join(_pipeline_dir, 'variant_analysis', 'run_spliceai_analysis.py')
-        args = ['python', script, '--spliceai-vcf', self.input().path, '--schema', self.cfg.db_schema]
+        args = [sys.executable, script, '--spliceai-vcf', self.input().path, '--schema', self.cfg.db_schema]
         self._run_process_with_pipeline_path(args)
         with open(self.output().path, 'w') as f:
             f.write('done\n')
@@ -160,7 +161,7 @@ class AnalyzePriors(VCFAssemblyTask):
     def run(self):
         script = os.path.join(_pipeline_dir, 'variant_analysis', 'run_priors_analysis.py')
         args = [
-            'python', script,
+            sys.executable, script,
             '--processes', str(self.priors_processes),
             '--schema', self.cfg.db_schema,
         ]
@@ -231,7 +232,7 @@ class AnalyzePopfreq(VCFAssemblyTask):
         _, cov_v4_joint, cov_v4_exome, cov_v3_genome, lcr_bed = self.input()
         script = os.path.join(_pipeline_dir, 'variant_analysis', 'run_popfreq_analysis.py')
         args = [
-            'python', script,
+            sys.executable, script,
             '--coverage-v4-joint',  cov_v4_joint.path,
             '--coverage-v4-exome',  cov_v4_exome.path,
             '--coverage-v3-genome', cov_v3_genome.path,
@@ -265,7 +266,7 @@ class AnalyzePopfreqLegacy(VCFAssemblyTask):
         _, coverage_parquet, cov_v3_genome = self.input()
         script = os.path.join(_pipeline_dir, 'variant_analysis', 'run_popfreq_analysis.py')
         args = [
-            'python', script,
+            sys.executable, script,
             '--coverage-v4-joint',  coverage_parquet.path,
             '--coverage-v3-genome', cov_v3_genome.path,
             '--method-name', 'popfreq_1.2',
