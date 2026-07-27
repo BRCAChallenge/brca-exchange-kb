@@ -168,13 +168,13 @@ def spawn_pipeline(code_base: Path, work_dir: Path) -> Path:
     variable here -- the Makefile no longer reads a GENE_CONFIG_FILENAME
     override directly.
 
-    Luigi's own output (the slow part) is logged by the Makefile's
-    run-pipeline target to PIPELINE_LOG, computed here so the caller can
-    display it immediately without waiting on or parsing `make`'s output.
-    The rest of build-release's own output (checkout, resource downloads,
-    docker service startup, ...) goes to a separate build-release log rather
-    than being discarded, since that's where any early, fast-failing setup
-    problems would show up.
+    Both logs are now written by the Makefile itself: run-pipeline's Luigi
+    output goes to PIPELINE_LOG, and the rest of build-release's own output
+    (checkout, resource downloads, docker service startup, ...) goes to
+    BUILD_RELEASE_LOG -- that's where any early, fast-failing setup problems
+    would show up. Both paths are computed here rather than left to the
+    Makefile's own defaults, so the caller can report them immediately
+    without waiting on or parsing `make`'s output.
 
     Args:
         code_base: Path to the code repository
@@ -193,18 +193,24 @@ def spawn_pipeline(code_base: Path, work_dir: Path) -> Path:
     build_release_log = log_dir / f"build_release_{timestamp}.log"
 
     print(f"\nKicking off pipeline! (spawned in the background, not waiting)")
-    cmd = ["make", f"PIPELINE_LOG={pipeline_log}", "build-release"]
+    cmd = [
+        "make",
+        f"PIPELINE_LOG={pipeline_log}",
+        f"BUILD_RELEASE_LOG={build_release_log}",
+        "build-release",
+    ]
     print(f"Running: {' '.join(cmd)}")
     print(f"build-release log: {build_release_log}")
-    with open(build_release_log, "w") as log_fh:
-        subprocess.Popen(
-            cmd,
-            cwd=pipeline_dir,
-            stdout=log_fh,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL,
-            start_new_session=True,
-        )
+    # Both logs above are opened by the Makefile's own recipes, not here --
+    # nothing meaningful is left on this process's stdout/stderr to capture.
+    subprocess.Popen(
+        cmd,
+        cwd=pipeline_dir,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+    )
 
     return pipeline_log
 

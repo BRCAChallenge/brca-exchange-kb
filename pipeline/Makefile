@@ -54,6 +54,13 @@ LUIGI_LOG_LEVEL ?= WARNING
 # just this one variable is always enough.
 PIPELINE_LOG ?= $(LOG_DIR)/tmp/luigi_run_$(shell date +%Y%m%d_%H%M%S).log
 
+# build-release's own log destination -- covers everything in the chain
+# (checkout, downloads, docker service startup, ...) except run-pipeline's
+# Luigi output, which goes to PIPELINE_LOG instead. Same override convention
+# as PIPELINE_LOG: set BUILD_RELEASE_LOG explicitly to agree on the path
+# up front (e.g. from generate_release.py).
+BUILD_RELEASE_LOG ?= $(LOG_DIR)/tmp/build_release_$(shell date +%Y%m%d_%H%M%S).log
+
 LOCAL_PIPELINE_ENV = \
 	HGVS_SEQREPO_DIR=$(VCF_ASSEMBLY_SEQ_REPO_DIR) \
 	UTA_DB_URL=$(VCF_ASSEMBLY_UTA_DB_URL) \
@@ -192,7 +199,10 @@ test-coverage: ## Running pipeline unit tests with coverage information locally 
 	cd $(PYTHONPATH_PIPELINE)/data && bash getdata && cd $(PYTHONPATH_PIPELINE) && PYTHONPATH=$(PYTHONPATH_PIPELINE) pytest --cov --ignore=splicing/ && coverage html --include="$(PYTHONPATH_PIPELINE)/*" --omit="*/test_*"
 
 
-build-release: checkout setup-files download-resources download-seqrepo start-local-uta start-seqrepo-rest-service start-vep-server run-pipeline variants-by-source ## create new data release
+build-release: ## create new data release; output logged to BUILD_RELEASE_LOG, not the console (run-pipeline's Luigi output still goes to its own PIPELINE_LOG)
+	mkdir -p $(dir $(BUILD_RELEASE_LOG))
+	@echo "Build-release log: $(BUILD_RELEASE_LOG)"
+	$(MAKE) PIPELINE_LOG=$(PIPELINE_LOG) checkout setup-files download-resources download-seqrepo start-local-uta start-seqrepo-rest-service start-vep-server run-pipeline variants-by-source > $(BUILD_RELEASE_LOG) 2>&1
 
 variants-by-source: ## postprocessing: compute statistics for changes with respect to the last release
 	PYTHONPATH=$(PYTHONPATH_PIPELINE) python $(PYTHONPATH_PIPELINE)/utilities/variantsBySource.py -i $(VCF_ASSEMBLY_OUT_DIR)/output/release/built_with_change_types.tsv -c true
