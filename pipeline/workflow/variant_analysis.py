@@ -241,6 +241,7 @@ class AnalyzePopfreq(VCFAssemblyTask):
             '--small-indel-size-threshold', '50',
             '--allele-count-rare-variant-threshold', '1',
             '--lcr', lcr_bed.path,
+            '--missing-faf-suggests-absence',
             '--method-name', 'popfreq_1.3',
             '--overwrite',
             '--schema', self.cfg.db_schema,
