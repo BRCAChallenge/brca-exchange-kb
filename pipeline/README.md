@@ -42,7 +42,7 @@ Then, the following steps are done via the Makefile:
  * builds a docker image
  * kicks off the pipeline in the docker image just created
 
-Should anything go wrong, the pipeline can be easily restarted by issuing `make run-pipeline` in the `pipeline` directory of the code base of the corresponding release (that's where both the `Makefile` and the configuration in `brca_pipeline_cfg.mk` is stored).
+Should anything go wrong, the pipeline can be easily restarted by issuing `make build-release` from the generated data release dir `data_release_yyyy-MM-dd/code/pipeline` (that's where both the `Makefile` and the configuration in `brca_pipeline_cfg.mk` are stored).
 
 ### Postprocessing
 

@@ -167,9 +167,9 @@ run-pipeline: ## Run the current luigi pipeline locally (no Docker); output logg
 		--log-level $(LUIGI_LOG_LEVEL) \
 		> $(PIPELINE_LOG) 2>&1
 
-# If the first argument is "run-task"...
+# If the first make target has arguments (run-task and others)...
 # https://stackoverflow.com/questions/2214575/passing-arguments-to-make-run
-ifeq ($(firstword),$(filter $(firstword), run-task, force-run-task, clean-files-from))
+ifeq ($(firstword $(MAKECMDGOALS)),$(filter $(firstword $(MAKECMDGOALS)), run-task force-run-task clean-files-from))
   # use the rest as arguments for "run"
   RUN_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
   # ...and turn them into do-nothing targets
