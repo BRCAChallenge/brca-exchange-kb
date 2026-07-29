@@ -341,9 +341,12 @@ def ensure_mane_transcript_cdna(row, mane_transcript, hgvs_proc, normalizer, am3
         return
 
     # No MANE cDNA from ClinGen (absent or on a different transcript) — try SeqRepo.
+    # Normalize the genomic variant first, then translate; this avoids applying
+    # cDNA-level normalization to intronic positions (unsupported by the HGVS library).
     genomic_hgvs_38_obj = hgvs_proc.hgvs_parser.parse(str(row[PYHGVS_GENOMIC_COORDINATE_38_COL]))
     try:
-        cdna_hgvs = normalizer.normalize(am38.g_to_c(genomic_hgvs_38_obj, mane_transcript))
+        normalized_g = normalizer.normalize(genomic_hgvs_38_obj)
+        cdna_hgvs = am38.g_to_c(normalized_g, mane_transcript)
         row[PYHGVS_CDNA_COL] = str(cdna_hgvs)
         parts = row[PYHGVS_CDNA_COL].split(':')
         row[REFERENCE_SEQUENCE_COL] = parts[0]
