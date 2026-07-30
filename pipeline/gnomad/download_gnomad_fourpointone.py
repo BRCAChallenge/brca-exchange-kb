@@ -102,11 +102,16 @@ def postprocess(input_vcf, output_vcf, coverage_parquet, logger):
             reader.header.add_line('##contig=<ID={}>'.format(contig))
     writer = pysam.VariantFile(output_vcf, 'w', header=reader.header)
     for record in reader:
-        filter_keys = list(record.filter.keys())
-        if not filter_keys or filter_keys[0] == "PASS":
-            record.info['flags'] = "-"
-        else:
-            record.info['flags'] = ','.join(filter_keys)
+        # Prefer flags already in INFO (source VCF may carry them directly).
+        # Fall back to deriving from the FILTER field for VCFs that encode flags there.
+        existing_flags = record.info.get('flags')
+        has_real_flags = existing_flags is not None and existing_flags != ('-',)
+        if not has_real_flags:
+            filter_keys = list(record.filter.keys())
+            if not filter_keys or filter_keys[0] == "PASS":
+                record.info['flags'] = "-"
+            else:
+                record.info['flags'] = ','.join(filter_keys)
         alt = record.alts[0]
         var_id = "%s-%s-%s-%s" % (re.sub("^chr", "", record.chrom),
                                   str(record.pos), record.ref, alt)
