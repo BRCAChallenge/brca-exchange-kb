@@ -72,7 +72,7 @@ TABLES = [
     dict(table='variant_other',        pk=None, omit=None),
     dict(table='analysis_bayesdel',   pk=None, omit=None),
     dict(table='analysis_priors',     pk=None, omit=None),
-    dict(table='analysis_provisional_evidence_codes', pk=None, omit=None),
+    dict(table='analysis_provisional_evidence_codes', pk=['VRS_Digest', 'method_name'], omit=['id']),
 ]
 
 
