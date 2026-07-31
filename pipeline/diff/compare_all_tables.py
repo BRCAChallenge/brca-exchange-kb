@@ -16,6 +16,7 @@ Runs compare_table.py for each table and writes output files to DIR:
     report_clinvar.detail.txt
     variant_enigma.detail.txt
     variant_exlovd.detail.txt
+    variant_other.detail.txt
     analysis_bayesdel.detail.txt
     analysis_priors.detail.txt
     analysis_provisional_evidence_codes.detail.txt
@@ -68,6 +69,7 @@ TABLES = [
     dict(table='report_clinvar',  pk=['VRS_Digest_id', 'SCV'], omit=['id']),
     dict(table='variant_enigma',  pk=['VRS_Digest_id'], omit=['id']),
     dict(table='variant_exlovd',  pk=None, omit=None),
+    dict(table='variant_other',        pk=None, omit=None),
     dict(table='analysis_bayesdel',   pk=None, omit=None),
     dict(table='analysis_priors',     pk=None, omit=None),
     dict(table='analysis_provisional_evidence_codes', pk=None, omit=None),

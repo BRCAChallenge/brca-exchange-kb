@@ -36,6 +36,53 @@ def test_preprocess_element_value():
     assert clinvar_common._preprocess_element_value('NM_000059.3(BRCA2):c.6591_6592del (p.Glu2198fs)') == 'NM_000059.3(BRCA2):c.6591_6592del'
 
 
+def test_is_bic_designation():
+    assert clinvar_common.is_bic_designation('1294del41')
+    assert clinvar_common.is_bic_designation('5277A>G')
+    assert clinvar_common.is_bic_designation('999insA')
+    assert not clinvar_common.is_bic_designation('p.(Leu392GlnfsTer6)')
+
+
+def test_variant_bic_nomenclature_from_other_name_list():
+    # OtherNameList mixes a legacy BIC-style designator with an HGVS-style
+    # protein change synonym; only the former should be picked out.
+    sample_simple_allele = """
+      <SimpleAllele AlleleID="12345">
+        <Location>
+          <SequenceLocation Assembly="GRCh38" Chr="13" positionVCF="32345245" referenceAlleleVCF="A" alternateAlleleVCF="G"/>
+        </Location>
+        <OtherNameList>
+          <Name>1294del41</Name>
+          <Name>p.(Leu392GlnfsTer6)</Name>
+        </OtherNameList>
+      </SimpleAllele>
+    """
+
+    element = ET.fromstring(sample_simple_allele)
+    v = clinvar_common.variant(element, debug=False)
+
+    assert v.bic_nomenclature == '1294del41'
+    assert 'p.(Leu392GlnfsTer6)' in v.synonyms
+
+
+def test_variant_bic_nomenclature_absent():
+    sample_simple_allele = """
+      <SimpleAllele AlleleID="12345">
+        <Location>
+          <SequenceLocation Assembly="GRCh38" Chr="13" positionVCF="32345245" referenceAlleleVCF="A" alternateAlleleVCF="G"/>
+        </Location>
+        <OtherNameList>
+          <Name>p.(Leu392GlnfsTer6)</Name>
+        </OtherNameList>
+      </SimpleAllele>
+    """
+
+    element = ET.fromstring(sample_simple_allele)
+    v = clinvar_common.variant(element, debug=False)
+
+    assert v.bic_nomenclature is None
+
+
 
 
 

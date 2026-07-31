@@ -334,7 +334,8 @@ class Command(BaseCommand):
 
             variant = self._upsert_variant(d, vrs_data,
                 Gene_Symbol=self._filter_gene_symbol(info_str(rec, 'Symbol')),
-                Reference_Sequence='-', HGVS_cDNA='-', BIC_Nomenclature='-',
+                Reference_Sequence='-', HGVS_cDNA='-',
+                BIC_Nomenclature=info_str(rec, 'BIC_Nomenclature'),
                 HGVS_Protein='-', Protein_Change='-',
                 Synonyms=info_str(rec, 'Synonyms'),
             )
