@@ -17,7 +17,7 @@ def printHeader():
                      "SCV_Version", "ID", "Origin", "Method", "Genomic_Coordinate",
                      "Symbol", "Protein", "Description", "SummaryEvidence",
                      "ReviewStatus", "ConditionType", "ConditionValue",
-                     "ConditionDB_ID", "Synonyms")))
+                     "ConditionDB_ID", "Synonyms", "BIC_Nomenclature")))
 
 MULTI_VALUE_SEP = ','
 
@@ -66,7 +66,8 @@ def processSubmission(submissionSet, assembly):
                                      str(classification.condition_type),
                                      str(classification.condition_value),
                                      ",".join(classification.condition_db_id),
-                                     str(synonyms))))
+                                     str(synonyms),
+                                     variant.bic_nomenclature or '-')))
 
 
 def _bases_only(seq):
