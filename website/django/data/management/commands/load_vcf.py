@@ -138,6 +138,40 @@ def ucsc_url(chrom, pos):
     return f'https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position={c}:{pos}-{pos}'
 
 
+_CHR_TO_NC = {
+    '13': 'NC_000013.11', 'chr13': 'NC_000013.11',
+    '17': 'NC_000017.11', 'chr17': 'NC_000017.11',
+}
+
+
+def bare_chrom(chrom):
+    return chrom[3:] if chrom.startswith('chr') else chrom
+
+
+def genomic_hgvs(rec):
+    """Construct NC_XXXXXX.XX:g.XXXX genomic HGVS from a pysam VCF record."""
+    nc = _CHR_TO_NC.get(rec.chrom)
+    if not nc:
+        return '-'
+    pos = rec.pos + 1  # pysam is 0-based; HGVS uses 1-based positions
+    ref = rec.ref
+    alt = rec.alts[0] if rec.alts else None
+    if alt is None:
+        return '-'
+    if len(ref) == 1 and len(alt) == 1:
+        return f'{nc}:g.{pos}{ref}>{alt}'
+    if len(ref) > 1 and len(alt) == 1:
+        # deletion with VCF anchor base at pos; deleted bases start at pos+1
+        if len(ref) == 2:
+            return f'{nc}:g.{pos + 1}del'
+        return f'{nc}:g.{pos + 1}_{pos + len(ref) - 1}del'
+    if len(ref) == 1 and len(alt) > 1:
+        # insertion with VCF anchor base at pos
+        return f'{nc}:g.{pos}_{pos + 1}ins{alt[1:]}'
+    # complex indel — represent as substitution
+    return f'{nc}:g.{pos}_{pos + len(ref) - 1}delins{alt}'
+
+
 def load_pickle(path):
     with open(path, 'rb') as f:
         return pickle.load(f)
@@ -292,9 +326,9 @@ class Command(BaseCommand):
                 variant.save(using=DB)
 
             self._upsert_coords(variant,
-                hgvs=info_str(rec, 'HGVS_cDNA'),
+                hgvs=genomic_hgvs(rec),
                 genome_browser_url=ucsc_url(rec.chrom, rec.pos),
-                chr=rec.chrom, pos=str(rec.pos),
+                chr=bare_chrom(rec.chrom), pos=str(rec.pos),
                 ref=rec.ref, alt=rec.alts[0] if rec.alts else '-',
             )
 
@@ -341,9 +375,9 @@ class Command(BaseCommand):
             )
 
             self._upsert_coords(variant,
-                hgvs=info_str(rec, 'HGVS'),
+                hgvs=genomic_hgvs(rec),
                 genome_browser_url=ucsc_url(rec.chrom, rec.pos),
-                chr=rec.chrom, pos=str(rec.pos),
+                chr=bare_chrom(rec.chrom), pos=str(rec.pos),
                 ref=rec.ref, alt=rec.alts[0] if rec.alts else '-',
             )
 
@@ -395,9 +429,9 @@ class Command(BaseCommand):
             )
 
             self._upsert_coords(variant,
-                hgvs=info_str(rec, 'gDNA'),
+                hgvs=genomic_hgvs(rec),
                 genome_browser_url=ucsc_url(rec.chrom, rec.pos),
-                chr=rec.chrom, pos=str(rec.pos),
+                chr=bare_chrom(rec.chrom), pos=str(rec.pos),
                 ref=rec.ref, alt=rec.alts[0] if rec.alts else '-',
             )
 
@@ -448,9 +482,9 @@ class Command(BaseCommand):
             )
 
             self._upsert_coords(variant,
-                hgvs=info_str(rec, 'dna_change'),
+                hgvs=genomic_hgvs(rec),
                 genome_browser_url=ucsc_url(rec.chrom, rec.pos),
-                chr=rec.chrom, pos=str(rec.pos),
+                chr=bare_chrom(rec.chrom), pos=str(rec.pos),
                 ref=rec.ref, alt=rec.alts[0] if rec.alts else '-',
             )
 
@@ -490,9 +524,9 @@ class Command(BaseCommand):
             )
 
             self._upsert_coords(variant,
-                hgvs=info_str(rec, 'hgvs'),
+                hgvs=genomic_hgvs(rec),
                 genome_browser_url=ucsc_url(rec.chrom, rec.pos),
-                chr=rec.chrom, pos=str(rec.pos),
+                chr=bare_chrom(rec.chrom), pos=str(rec.pos),
                 ref=rec.ref, alt=rec.alts[0] if rec.alts else '-',
             )
 
@@ -617,9 +651,9 @@ class Command(BaseCommand):
             )
 
             self._upsert_coords(variant,
-                hgvs=info_str(rec, 'HGVS_Nucleotide_Variant'),
+                hgvs=genomic_hgvs(rec),
                 genome_browser_url=ucsc_url(rec.chrom, rec.pos),
-                chr=rec.chrom, pos=str(rec.pos),
+                chr=bare_chrom(rec.chrom), pos=str(rec.pos),
                 ref=rec.ref, alt=rec.alts[0] if rec.alts else '-',
             )
 
