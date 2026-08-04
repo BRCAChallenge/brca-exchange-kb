@@ -13,11 +13,11 @@ import anchorme from "anchorme";
 
 
 class Releases extends React.Component {
-    state = { releases: {} };
+    state = { releases: {}, loading: true };
     componentDidMount() {
         backend.releases().subscribe(
-            resp => this.setState(resp),
-            () => this.setState({error: 'Problem connecting to server'}));
+            resp => this.setState({...resp, loading: false}),
+            () => this.setState({error: 'Problem connecting to server', loading: false}));
     }
     getSourceRepresentations = (sources) => {
         // exLOVD was renamed ExUV in October 2017
@@ -42,6 +42,21 @@ class Releases extends React.Component {
                 <td>{release['variants_deleted']}</td>
             </tr>
         ));
+	if (this.state.loading) {
+            return (
+                <Grid id="main-grid" className="main-grid">
+                    <Row>
+                        <Col className="text-center" style={{padding: '50px'}}>
+                            <div className="spinner-border text-primary" role="status"
+                                style={{width: '3rem', height: '3rem'}}>
+                                <span className="visually-hidden">Loading...</span>
+                            </div>
+                            <p style={{marginTop: '10px', color: '#666'}}>Loading Data Releases...</p>
+                        </Col>
+                    </Row>
+                </Grid>
+            );
+        }
         return (
             <Grid id="main-grid" className="main-grid">
                 <Row>
@@ -94,7 +109,7 @@ class Release extends React.Component {
     generateReleaseNotes() {
         var release = this.state.releases[0];
         var releaseNotes = '';
-        if (release.hasOwnProperty('notes')) {
+        if (Object.prototype.hasOwnProperty.call(release, 'notes')) {
             // format linebreaks
             releaseNotes = release.notes.replace(/\n\s*\n/g, '\n\n');
             // format hyperlinks
@@ -120,7 +135,7 @@ class Release extends React.Component {
                 </Row>
                 <Row>
                     <Col sm={{ span: 8, offset: 2 }} md={{ span: 6, offset: 3 }} className='text-start'>
-                        <p className='release-notes text-left' dangerouslySetInnerHTML={this.generateReleaseNotes()}></p>
+                        <p className='release-notes text-left' dangerouslySetInnerHTML={this.generateReleaseNotes()} />
 		    </Col>
 		    <div className='text-center'>
                         <h3>{release['variants_added']} new variant{s(release['variants_added'])}</h3>

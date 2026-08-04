@@ -1,5 +1,3 @@
-/*eslint-env browser */
-/*global require: false */
 'use strict';
 
 import SourceReportsTile from "./components/SourceReportsTile";
@@ -11,7 +9,7 @@ import ComputationalPredictionTile from "./components/computationalprediction/Co
 import ProvisionalEvidenceTile from "./components/ProvisionalEvidenceTile";
 import MupitStructure from './MupitStructure';
 
-require('./favicons');
+import './favicons';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import DisclaimerModal from './DisclaimerModal';
@@ -65,6 +63,7 @@ import {Profile} from './Profile';
 import VariantSearch from './VariantSearch';
 import { Releases, Release } from './Releases.js';
 import Help from './Help.js';
+import Resources from './Resources.js';
 
 import KeyInline from './components/KeyInline';
 import GroupHelpButton from './components/GroupHelpButton';
@@ -109,6 +108,7 @@ class Footer extends React.PureComponent {
                         <li><a href="/">Home</a></li>
                         <li><a href="/about/history">About</a></li>
                         <li><a href="/variants">Variants</a></li>
+			<li><a href="/resources">Resources</a></li>
                         <li><a href="/about/api">API</a></li>
                         <li><a href="https://brcaexchange.org/blog">Blog</a></li>
                     </ul>
@@ -182,11 +182,19 @@ class HomeRaw extends React.Component {
             <Grid id="main-grid" className='home'>
                 <Row>
                     <Col sm={{ span: 8, offset: 2 }}>
+			<h2 style={{fontWeight: 'bold'}}>
+                            Search for your BRCA variant of interest:
+                        </h2>
                        <VariantSearch
                            id='home-search'
                            onSearch={this.onSearch}/>
                     </Col>
                 </Row>
+		<Row>
+		   <h3>
+			Find educational and support information on our <Link to={'/resources'}>Resources</Link> page.
+		   </h3>
+		</Row>
                 <Row>
                     <div className="jumbotron homepage-jumbotron">
                         <RawHTML html={content.pages.home} />
@@ -434,13 +442,14 @@ class Database extends React.Component {
           }
     }
 
-    showHelp(title) {
+    // TODO: use `title` to link to a section-specific help page instead of the generic /help route
+    showHelp(_title) {
         var d3TipDiv = document.getElementsByClassName('d3-tip-selection');
         if (d3TipDiv.length !== 0 && d3TipDiv[0].style.opacity !== '0') {
             d3TipDiv[0].style.opacity = '0';
             d3TipDiv[0].style.pointerEvents = 'none';
         }
-        this.transitionTo(`/help#${slugify(title)}`);
+        this.transitionTo(`/help`);
     }
 
     componentDidMount() {
@@ -462,6 +471,16 @@ class Database extends React.Component {
             setTimeout(callback, 0);
         });
     }
+
+	// XXX An oddity of the state flow here: we update the url when table settings
+	// change, so the page can be bookmarked, and forward/back buttons work. We
+	// do it on a timeout so we don't generate history entries for every keystroke,
+	// which would be bad for the user. Changing the url causes a re-render, passing
+	// in new props, which causes DataTable to overwrite its state with the
+	// same state that caused us to update the url. It's a bit circular.
+	// It would be less confusing if DataTable did not hold these params in state,
+	// but just read them from props, and all updates to the props occurred via
+	// transitionTo(). Consider for a later refactor.
 
     onChange(state) {
         if (this.props.show) {
@@ -567,6 +586,9 @@ class Database extends React.Component {
 }
 
 // get display name for a given key from VariantTable.js column specification
+// if we are in summary view mode, search summary view names then fall back to
+// all data, otherwise go straight to all data. Finally, if key is not found, replace
+// _ with space in the key and return that.
 function getDisplayName(key) {
     const researchMode = (localStorage.getItem("research-mode") === 'true');
     let displayName;
@@ -606,7 +628,7 @@ class IsoGrid extends React.Component {
     }
 
     componentDidMount() {
-        const root= this._rootRef.current;
+        const root = this._rootRef.current;
 	if (!root || !this.masonry) {
             this.masonry = new Isotope(root, {
                 layoutMode: 'packery',
@@ -744,7 +766,7 @@ class VariantDetail extends React.Component {
 	this._subs.push(
 	    backend.variant(id).subscribe(
             resp => {
-                if (resp.hasOwnProperty('redirect') && resp.redirect === true) {
+                if (Object.prototype.hasOwnProperty.call(resp, 'redirect') && resp.redirect === true) {
                     this.transitionTo('/variants', null, {search: resp.data});
                 } else {
                     this.setState({data: resp.data, error: null});
@@ -761,7 +783,7 @@ class VariantDetail extends React.Component {
                 this.setState({reports: groupedReports, error: null}, () => {
                     this.relayoutGrid();
                 });
-            }, 
+            },
 	    () => {
                 this.setState({reportError: 'Problem retrieving reports'});
                 console.warn("Couldn't retrieve reports!");
@@ -784,7 +806,13 @@ class VariantDetail extends React.Component {
             setTimeout(() => this.relayoutGrid(true), 0);
         }
 
-        // redirect logic (moved from componentWillUpdate)
+        // ensure that we're viewing the latest version of the variant, with the stable CA_ID URL.
+	// and redirect if we're not,
+	// unless the querystring param 'noRedirect=true' is specified, in which case we stay here.
+	// In the rare case there is no CA_ID, redirect to the latest version by numeric ID instead.
+	// (if someone *really* wants to link to the old variant, they may also specify 'noRedirectMsg=true'
+	// to silence the warning at the top of the page, too.)
+	// redirect logic (moved from componentWillUpdate)
         const { data } = this.state;
         const currentId = this.getParamId();
         if (data && data[0] && currentId !== data[0].CA_ID) {
@@ -844,8 +872,8 @@ class VariantDetail extends React.Component {
     }
     isGroupOpenLS(key) {
         // local state wins, otherwise read from storage (for initial render)
-        if (this.state.openGroups.hasOwnProperty(key)) { return !!this.state.openGroups[key]; }
-        return isOpenFromStorage(key); 
+        if (Object.prototype.hasOwnProperty.call(this.state.openGroups, key)) { return !!this.state.openGroups[key]; }
+        return isOpenFromStorage(key);
     }
     toggleCard(key) {
        this.setState((prev) => {
@@ -930,7 +958,7 @@ class VariantDetail extends React.Component {
                             diffHTML.push(
                                 <span key={`diff-${i}-${j}-new`}>
                                     <strong>{ getDisplayName(fieldName) }: </strong>
-                                    <span className='badge bg-success'><span className='fa fa-star'></span> New</span>
+                                    <span className='badge bg-success'><span className='fa fa-star' /> New</span>
                                     &nbsp;{`${added}`}
                                 </span>
                             );
@@ -947,7 +975,7 @@ class VariantDetail extends React.Component {
                             diffHTML.push(
                                 <span key={`diff-${i}-${j}-individual`}>
                                     <strong>{ getDisplayName(fieldName) }: </strong>
-                                    {removed} <span className="fa fa-arrow-right"></span> {added}
+                                    {removed} <span className="fa fa-arrow-right" /> {added}
                                 </span>
                             );
 			    diffHTML.push(<br key={`diff-${i}-${j}-br`} />);
@@ -972,7 +1000,7 @@ class VariantDetail extends React.Component {
         this.setState((pstate) => {
             const k = `submitter-group-${sourceName}-${submitter}`;
             return {
-                [k]: !(!pstate.hasOwnProperty(k) || pstate[k])
+                [k]: !(!Object.prototype.hasOwnProperty.call(pstate, k) || pstate[k])
             };
         });
     }
@@ -1000,9 +1028,6 @@ class VariantDetail extends React.Component {
             cols = columns;
             groups = expertModeGroups;
         }
-
-        let groupsEmpty = 0;
-        let totalRowsEmpty = 0;
 
         const groupTables = _.map(groups, ({ groupTitle, innerCols, reportSource, reportBinding, alleleFrequencies, inSilicoPred, innerGroups }) => {
             let rowsEmpty = 0;
@@ -1143,7 +1168,12 @@ class VariantDetail extends React.Component {
 
                 if (prop === "Mupit_Structure") {
                     rowItem = <MupitStructure variant={variant} prop={prop} onLoad={() => this.relayoutGrid()} />;
-                    if (util.getAminoAcidCode(variant["HGVS_Protein"]) === false) {
+                    /*
+                    Don't display mupit structures if they don't have an associated Amino Acid change.
+                    Note that there shouldn't be mupit structures for these variants in the first place,
+                    but there may be as getAminoAcidCode may change after the database is populated
+                    */
+		    if (util.getAminoAcidCode(variant["HGVS_Protein"]) === false) {
                         rowsEmpty += 1;
                         rowItem = false;
                     }
@@ -1171,14 +1201,14 @@ class VariantDetail extends React.Component {
                         isEmptyValue = true;
                     } else {
                         let websiteUrl = `https://beacon-network.org/#/search?chrom=${variant.Chr}&pos=${variant.Hg37_Start}&ref=${variant.Ref}&allele=${variant.Alt}&rs=GRCh37`;
-                        rowItem = <a target="_blank" href={websiteUrl}>{websiteUrl}</a>;
+                        rowItem = <a target="_blank" href={websiteUrl} rel="noreferrer">{websiteUrl}</a>;
                         isEmptyValue = false;
                     }
                 }
 
                 if (!isEmptyValue && prop === "CA_ID") {
                     let websiteUrl = `http://reg.clinicalgenome.org/redmine/projects/registry/genboree_registry/by_canonicalid?canonicalid=${variant.CA_ID}`;
-                    rowItem = <a target="_blank" href={websiteUrl}>{variant[prop]}</a>;
+                    rowItem = <a target="_blank" href={websiteUrl} rel="noreferrer">{variant[prop]}</a>;
                     isEmptyValue = false;
                 }
 
@@ -1191,7 +1221,6 @@ class VariantDetail extends React.Component {
                 // `prop` alone can collide or be undefined in some cases.
                 const rowKey = `vd-${groupTitle}-${prop || idx}`;
 
-                totalRowsEmpty += rowsEmpty;
                 return (
                     <tr key={rowKey} className={ (isEmptyValue && this.state.hideEmptyItems) ? "variantfield-empty" : "" }>
                         { rowDescriptor.tableKey !== false &&
@@ -1207,10 +1236,6 @@ class VariantDetail extends React.Component {
             });
 
             const allEmpty = rowsEmpty >= rows.length;
-            if (allEmpty) {
-                groupsEmpty += 1;
-            }
-
             const tileTable = (
                 <Table>
                     <tbody>
@@ -1229,7 +1254,7 @@ class VariantDetail extends React.Component {
                             role="button"
                             aria-expanded={isOpen}
                             className="d-flex justify-content-between align-items-center"
-                            onClick={(event) => { event.preventDefault(); this.toggleCard(storageKey) }}
+                            onClick={(event) => { event.preventDefault(); this.toggleCard(storageKey); }}
                         >
                             <span className="title fw-bold">{groupTitle}</span>
                             <span className="d-flex align-items-center">
@@ -1255,14 +1280,14 @@ class VariantDetail extends React.Component {
         if (this.state.reports !== undefined) {
             let sortedSubmissions = {'ClinVar': {}, 'LOVD': {}};
 
-            if (this.state.reports.hasOwnProperty('ClinVar')) {
+            if (Object.prototype.hasOwnProperty.call(this.state.reports, 'ClinVar')) {
                 let clinvarSubmissions = this.state.reports.ClinVar;
                 for (var i = 0; i < clinvarSubmissions.length; i++) {
                     if (clinvarSubmissions[i].Diff === null || clinvarSubmissions[i].Diff === undefined) {
                         continue;
                     }
                     let key = clinvarSubmissions[i].SCV_ClinVar;
-                    if (sortedSubmissions.ClinVar.hasOwnProperty(key)) {
+                    if (Object.prototype.hasOwnProperty.call(sortedSubmissions.ClinVar, key)) {
                         sortedSubmissions.ClinVar[key].push(clinvarSubmissions[i]);
                     } else {
                         sortedSubmissions.ClinVar[key] = [clinvarSubmissions[i]];
@@ -1270,14 +1295,14 @@ class VariantDetail extends React.Component {
                 }
             }
 
-            if (this.state.reports.hasOwnProperty('LOVD')) {
+            if (Object.prototype.hasOwnProperty.call(this.state.reports, 'LOVD')) {
                 let lovdSubmissions = this.state.reports.LOVD;
                 for (var j = 0; j < lovdSubmissions.length; j++) {
                     if (lovdSubmissions[j].Diff === null || lovdSubmissions[j].Diff === undefined) {
                         continue;
                     }
                     let key = lovdSubmissions[j].Submission_ID_LOVD;
-                    if (sortedSubmissions.LOVD.hasOwnProperty(key)) {
+                    if (Object.prototype.hasOwnProperty.call(sortedSubmissions.LOVD, key)) {
                         sortedSubmissions.LOVD[key].push(lovdSubmissions[j]);
                     } else {
                         sortedSubmissions.LOVD[key] = [lovdSubmissions[j]];
@@ -1308,7 +1333,7 @@ class VariantDetail extends React.Component {
                                     {this.generateDiffRows(cols, submissions, true)}
                                 </tbody>
                             </Table>
-                            <p style={{display: this.props.mode === "research_mode" ? 'none' : 'block' }}>There may be additional changes to this variant, click "Show Detail View for this Variant" to see these changes.</p>
+                            <p style={{display: this.props.mode === "research_mode" ? 'none' : 'block' }}>There may be additional changes to this variant, click &quot;Show Detail View for this Variant&quot; to see these changes.</p>
                         </Col>
                     </Row>
                 );
@@ -1337,7 +1362,7 @@ class VariantDetail extends React.Component {
                                     {this.generateDiffRows(cols, submissions, true)}
                                 </tbody>
                             </Table>
-                            <p style={{display: this.props.mode === "research_mode" ? 'none' : 'block' }}>There may be additional changes to this variant, click "Show Detail View for this Variant" to see these changes.</p>
+                            <p style={{display: this.props.mode === "research_mode" ? 'none' : 'block' }}>There may be additional changes to this variant, click &quot;Show Detail View for this Variant&quot; to see these changes.</p>
                         </Col>
                     </Row>
                 );
@@ -1448,7 +1473,7 @@ class VariantDetail extends React.Component {
                                                 role="button"
                                                 aria-expanded={splicingOpen}
                                                 className="d-flex justify-content-between align-items-center"
-                                                onClick={(e) => { e.preventDefault(); this.toggleCard(splicingKey) }}
+                                                onClick={(e) => { e.preventDefault(); this.toggleCard(splicingKey); }}
                                             >
                                                 <span className="title fw-bold">{`${variant['Gene_Symbol']} ${variant['HGVS_cDNA']} Transcript Visualization`}</span>
                                                 <span className="d-flex align-items-center">
@@ -1518,7 +1543,7 @@ class VariantDetail extends React.Component {
                                 {diffRows}
                             </tbody>
                         </Table>
-                        <p style={{display: this.props.mode === "research_mode" ? 'none' : 'block' }}>There may be additional changes to this variant, as well as changes to corresponding submissions. Click "Show Detail View for this Variant" to see these changes.</p>
+                        <p style={{display: this.props.mode === "research_mode" ? 'none' : 'block' }}>There may be additional changes to this variant, as well as changes to corresponding submissions. Click &quot;Show Detail View for this Variant&quot; to see these changes.</p>
                     </Col>
                 </Row>
 
@@ -1536,7 +1561,7 @@ class VariantDetail extends React.Component {
 }
 
 class Application extends React.Component {
-    constructor(props){
+    constructor(props) {
 	super(props);
 	this.state = {
 	    mode: localStorage.getItem('research-mode') === 'true' ? 'research_mode' : 'default',
@@ -1596,7 +1621,7 @@ class Application extends React.Component {
 		    history={this.props.history}
                     mode={this.state.mode}
                     toggleMode={this.onChildToggleMode}
-                    show={path.indexOf('variants') === 0} /> 
+                    show={path.indexOf('variants') === 0} />
 		)}
 		{path.indexOf('variant/') === 0 && (() => {
 		const variantId = path.split('variant/')[1]?.split('?')[0]?.split('#')[0];
@@ -1638,8 +1663,9 @@ const routes = (
         <Route path='/signin' component={Signin}/>
         <Route path='/reset_password' component={ResetPassword}/>
 	<Route path='/profile' component={Profile}/>
-        <Route path='confirm/:activationCode' component={ConfirmEmail}/>
+        <Route path='/confirm/:activationCode' component={ConfirmEmail}/>
 	<Route path='/reset/:resetToken' component={ChangePassword}/>
+	<Route path='/resources' component={Resources}/>
     </Switch>
 );
 

@@ -1,4 +1,3 @@
-/*global module: false, require: false, URL: false, Blob: false */
 'use strict';
 
 import React from 'react';
@@ -26,7 +25,7 @@ var pluralize = (n, s) => n === 1 ? s : s + 's';
 var merge = (...args) => _.extend({}, ...args);
 
 
-function setPages({data, count, deletedCount, synonyms, releaseName}, pageLength) { //eslint-disable-line camelcase
+function setPages({data, count, deletedCount, synonyms, releaseName}, pageLength) {
     return {
         data,
         count,
@@ -97,16 +96,16 @@ class FastTable extends React.Component {
         variantData = this.normalizeGenomicCoordinate(field, hgvsValue, variantData);
         return variantData;
     }
-    onSort =(column) => {
+    onSort = (column) => {
         if (this.props.onSort) {
             const currentSort = this.props.sortBy;
-            const newOrder = (currentSort && currentSort.prop === column.prop && currentSort.order === 'asc') ? 'desc' : 'asc';
+            const newOrder = (currentSort && currentSort.prop === column.prop && currentSort.order === 'ascending') ? 'descending' : 'ascending';
             this.props.onSort({prop: column.prop, order: newOrder});
         }
     };
     render() {
         let {dataArray, columns, className, buildRowOptions, onRowClick, buildHeader, sortBy} = this.props;
-        
+
         if (dataArray.length > 0) {
             dataArray = _.map(dataArray, function(variantData) {
                 return this.determineGenomicCoordinates(variantData);
@@ -119,10 +118,9 @@ class FastTable extends React.Component {
                     <tr>
                         {columns.map((column, idx) => {
                             const isSorted = sortBy && sortBy.prop === column.prop;
-                            const sortIcon = isSorted ? (sortBy.order === 'asc' ? ' ▲' : ' ▼') : '';
-                            
+
                             return (
-                                <th 
+                                <th
                                     key={column.prop || idx}
                                     onClick={() => this.onSort(column)}
                                     style={{cursor: 'pointer'}}
@@ -141,7 +139,7 @@ class FastTable extends React.Component {
 					    fontSize: '10px',
 					    color: isSorted ? '#888' : '#ccc'
 					}}>
-				        {isSorted ? (sortBy.order === 'asc' ? '▲' : '▼') : '▲▼'}
+				        {isSorted ? (sortBy.order === 'ascending' ? '▲' : '▼') : '▲▼'}
 					</span>
 				    </div>
                                 </th>
@@ -160,8 +158,8 @@ class FastTable extends React.Component {
                         dataArray.map((row, rowIdx) => {
                             const rowOptions = buildRowOptions ? buildRowOptions(row) : {};
                             return (
-                                <tr 
-                                    key={rowIdx} 
+                                <tr
+                                    key={rowIdx}
                                     onMouseUp={(e) => {
                                         if (rowOptions.onMouseUp) return rowOptions.onMouseUp(e);
                                         if (onRowClick) return onRowClick(row, e);
@@ -206,6 +204,7 @@ class DataTable extends React.Component {
 
         this.state = mergeState({
             data: [],
+	    loading: false,
             filtersOpen: false,
             filterValues,
             columnSelectorsOpen: false,
@@ -221,17 +220,21 @@ class DataTable extends React.Component {
 
         this.fetchq = new Subject();
         this.subs = this.fetchq.pipe(
-            map(props.fetch),
+            map(state => {
+                setTimeout(() => this.setState({loading: true}), 0);
+                return props.fetch(state);
+            }),
             debounceTime(100),
             switchMap(obs => obs)
         ).subscribe(
-            resp => this.setState(setPages(resp, this.state.pageLength)),
-            () => this.setState({error: 'Problem connecting to server'})
+            resp => this.setState({...setPages(resp, this.state.pageLength), loading: false}),
+            () => this.setState({error: 'Problem connecting to server', loading: false})
         );
     }
 
     shouldComponentUpdate(nextProps, nextState) {
         return (
+	    this.state.loading !== nextState.loading ||
             this.state.filtersOpen !== nextState.filtersOpen ||
             this.state.columnSelectorsOpen !== nextState.columnSelectorsOpen ||
             this.state.page !== nextState.page ||
@@ -281,10 +284,10 @@ class DataTable extends React.Component {
         window.removeEventListener('resize', this.handleResize);
         this.subs.unsubscribe();
     }
-    
+
     handleResize = () => {
         this.setState({windowWidth: window.innerWidth});
-    }
+    };
 
     setFilters = (obj) => {
         const {filterValues} = this.state;
@@ -386,9 +389,9 @@ class DataTable extends React.Component {
         var {columns, filterColumns, className, columnSelectors, filters, downloadButton, mode} = this.props;
         var renderColumns = _.filter(columns, c => columnSelection[c.prop]);
         var filterFormEls = _.map(filterColumns, ({name, prop, values}) =>
-            <SelectField onChange={v => this.setFilters({[prop]: filterAny(v)})}
+            (<SelectField onChange={v => this.setFilters({[prop]: filterAny(v)})}
                          key={prop} label={`${name} is: `} value={filterDisplay(filterValues[prop])}
-                         options={addAny(values)}/>);
+                         options={addAny(values)}/>));
         // assumes added / changed are lumped together
         var changeString;
         if (changeTypes) {
@@ -492,13 +495,13 @@ class DataTable extends React.Component {
                             totalPages={totalPages}
                             onChangePage={this.onChangePage} />
                         */}
-                        
+
                         {/* TEMPORARY: Basic pagination buttons until Pagination component is available */}
                         <div className="pagination pull-right-sm" style={{display: 'inline-block', float: 'right'}}>
-                            <Button 
+                            <Button
                                 variant="secondary"
                                 size="sm"
-                                disabled={page === 0} 
+                                disabled={page === 0}
                                 onClick={() => this.onChangePage(page - 1)}
                                 style={{marginRight: '5px'}}
                             >
@@ -507,10 +510,10 @@ class DataTable extends React.Component {
                             <span style={{padding: '0 10px', display: 'inline-block', lineHeight: '31px'}}>
                                 Page {page + 1} of {totalPages}
                             </span>
-                            <Button 
+                            <Button
                                 variant="secondary"
                                 size="sm"
-                                disabled={page >= totalPages - 1} 
+                                disabled={page >= totalPages - 1}
                                 onClick={() => this.onChangePage(page + 1)}
                             >
                                 Next
@@ -520,7 +523,16 @@ class DataTable extends React.Component {
                 </Row>
                 <Row>
                     <Col id="data-table-container" sm={12}>
-                        <div className="table-responsive">
+			{this.state.loading && (
+                            <div className="text-center" style={{padding: '30px'}}>
+                                <div className="spinner-border text-primary" role="status"
+                                    style={{width: '3rem', height: '3rem'}}>
+                                    <span className="visually-hidden">Loading...</span>
+                                </div>
+                                <p style={{marginTop: '10px', color: '#666'}}>Loading variants...</p>
+                            </div>
+                        )}
+                        <div className="table-responsive" style={{display: this.state.loading ? 'none' : 'block'}}>
                             <FastTable
                                 className={cx(className, "table table-hover table-bordered table-grayheader")}
                                 dataArray={data}
