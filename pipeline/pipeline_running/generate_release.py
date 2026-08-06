@@ -169,12 +169,9 @@ def spawn_pipeline(code_base: Path, work_dir: Path) -> Path:
     override directly.
 
     Both logs are now written by the Makefile itself: run-pipeline's Luigi
-    output goes to PIPELINE_LOG, and the rest of build-release's own output
+    output goes to PIPELINE_LOG, and the output of build-releases's subcommands
     (checkout, resource downloads, docker service startup, ...) goes to
-    BUILD_RELEASE_LOG -- that's where any early, fast-failing setup problems
-    would show up. Both paths are computed here rather than left to the
-    Makefile's own defaults, so the caller can report them immediately
-    without waiting on or parsing `make`'s output.
+    BUILD_RELEASE_LOG. (The output of make build-release itself is lost to /dev/null.)
 
     Args:
         code_base: Path to the code repository

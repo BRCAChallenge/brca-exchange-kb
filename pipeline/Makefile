@@ -1,5 +1,9 @@
 .DEFAULT_GOAL := help
 
+# If the .ONESHELL special target appears anywhere in the makefile then all
+# recipe lines for each target will be provided to a single invocation of the shell.
+.ONESHELL:
+
 CONFIG_PATH := brca_pipeline_cfg.mk
 
 ifneq ("$(wildcard $(CONFIG_PATH))","")
@@ -116,6 +120,7 @@ setup-vep-cache: ## Download Ensembl VEP homo_sapiens GRCh38 cache (~15 GB)
 	             --CACHEDIR /vep_cache --NO_HTSLIB
 
 start-vep-server: build-vep-server ## Start VEP REST server on VEP_PORT (default 8888) if not already running
+	@echo "Starting VEP REST server..."
 	[ $$(docker ps -f name=$(VEP_CONTAINER) | wc -l) -gt 1 ] || \
 	docker run -d --name $(VEP_CONTAINER) \
 	  --restart unless-stopped \
@@ -130,6 +135,7 @@ stop-vep-server: ## Stop and remove the VEP REST server container
 	docker stop $(VEP_CONTAINER) && docker rm $(VEP_CONTAINER)
 
 start-local-uta: ## starting local uta docker container
+	@echo "Starting local UTA docker..."
 	[ `docker ps -f name=$(UTA_CONTAINER) | wc -l` -gt 1 ] || \
 	docker run -dit --name $(UTA_CONTAINER) \
           -v /tmp:/tmp -v $(UTA_VOLUME):/var/lib/postgresql/data \
@@ -137,26 +143,35 @@ start-local-uta: ## starting local uta docker container
           $(UTA_DOCKER_IMAGE)
 
 start-seqrepo-rest-service:
+	@echo "Starting seqrepo REST service..."
 	[ `docker ps -f name="seqrepo-rest-service" | wc -l` -gt 1 ] || \
 	utilities/launch_seqrepo.sh
 
-.ONESHELL:
 setup-files: ## setup various directories to run pipeline
 	[ -f $(CREDENTIALS_PATH) ] || { touch $(CREDENTIALS_PATH); echo "WARNING: files $(CREDENTIALS_PATH) doesn't exist.Creating it"; }
 	[ -f $(RELEASE_NOTES_PATH) ] || { touch $(RELEASE_NOTES_PATH) ; echo "WARNING: files $(RELEASE_NOTES_PATH) doesn't exist. Creating it"; }
 	[ -d $(RESOURCES_DIR) ] || mkdir -p $(RESOURCES_DIR)
 	[ -d $(PRIORS_REFERENCES) ] || mkdir -p $(PRIORS_REFERENCES)
 	[ -d $(OUT_DIR) ] || mkdir -p $(OUT_DIR)
-	[ -f $(PREVIOUS_RELEASE_DIR)/latest_release.tar.gz ] || wget https://brcaexchange.org/backend/downloads/releases/current_release.tar.gz -O $(PREVIOUS_RELEASE_DIR)/latest_release.tar.gz
+	[ -f $(PREVIOUS_RELEASE_DIR)/latest_release.tar.gz ] || wget --progress=dot:giga https://brcaexchange.org/backend/downloads/releases/current_release.tar.gz -O $(PREVIOUS_RELEASE_DIR)/latest_release.tar.gz
 
 download-seqrepo: ## Download seq repo data locally (no Docker; seqrepo pull skips downloading the latest release if we already have it)
+	@echo "Download seqrepo data..."
 	mkdir -p $(VCF_ASSEMBLY_SEQ_REPO_ROOT)
+	[ -d $(LOG_DIR)/tmp ] || mkdir -p $(LOG_DIR)/tmp
+	[ -d $(LOG_DIR)/tmp/seqrepo_venv ] || python -m venv $(LOG_DIR)/tmp/seqrepo_venv
+	. $(LOG_DIR)/tmp/seqrepo_venv/bin/activate
+	pip install -q biocommons.seqrepo
 	seqrepo -v --root-directory $(VCF_ASSEMBLY_SEQ_REPO_ROOT) pull --update-latest
 
 run-pipeline: ## Run the current luigi pipeline locally (no Docker); output logged to PIPELINE_LOG, not the console
+	@echo "Running Luigi pipeline..."
 	mkdir -p $(dir $(PIPELINE_LOG))
 	@echo "Pipeline log: $(PIPELINE_LOG)"
-	PATH=$(HOME)/bin:$(PATH) \
+	[ -d $(LOG_DIR)/tmp/luigi_venv ] || python -m venv $(LOG_DIR)/tmp/luigi_venv
+	. $(LOG_DIR)/tmp/luigi_venv/bin/activate
+	pip install -q luigi
+	PATH=$(LOG_DIR)/tmp/luigi_venv/bin:$(HOME)/bin:$(PATH) \
 	$(LOCAL_PIPELINE_ENV) \
 	python -m luigi --module $(VCF_ANALYSIS_MODULE) $(VCF_ANALYSIS_ROOT_TASK) \
 		$(PIPELINE_ARGS) \
@@ -167,9 +182,9 @@ run-pipeline: ## Run the current luigi pipeline locally (no Docker); output logg
 		--log-level $(LUIGI_LOG_LEVEL) \
 		> $(PIPELINE_LOG) 2>&1
 
-# If the first argument is "run-task"...
+# If the first make target has arguments (run-task and others)...
 # https://stackoverflow.com/questions/2214575/passing-arguments-to-make-run
-ifeq ($(firstword),$(filter $(firstword), run-task, force-run-task, clean-files-from))
+ifeq ($(firstword $(MAKECMDGOALS)),$(filter $(firstword $(MAKECMDGOALS)), run-task force-run-task clean-files-from))
   # use the rest as arguments for "run"
   RUN_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
   # ...and turn them into do-nothing targets
@@ -217,19 +232,16 @@ include-release-notes: run-pipeline ## postprocessing: include updated release n
 cleanup-failed: ## postprocessing: cleaning up some dangling FAILED files, which may be confusing
 	find $(OUT_DIR) -name 'FAILED*' -exec rm -i {} \;
 
-.ONESHELL:
 tag-release: ## postprocessing: tags and pushes git commit used for the data release
 	cd $(CODE_BASE)
 	git tag -m $(RELEASE_TAG) -a $(RELEASE_TAG) `git rev-parse HEAD`
 	git push origin $(RELEASE_TAG)
 
-.ONESHELL:
 push-docker: ## postprocessing: pushes docker image to docker hub
 	docker login
 	docker push brcachallenge/brca-exchange-pipeline:$(RELEASE_TAG)
 	docker logout
 
-.ONEHSELL:
 copy-to-previous: ## postprocessing: copy new release tar to previous release folder
 # 	take latest, in case there should be several tar.gz from some reason
 	cp `ls -t $(OUT_DIR)/release-*.tar.gz | head -n 1` $(PREVIOUS_RELEASE_DIR)

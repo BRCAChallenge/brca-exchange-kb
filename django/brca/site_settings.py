@@ -46,4 +46,3 @@ DATABASES = {
         'OPTIONS': {'options': '-c search_path=test_pipeline'},
     },
 }
-
