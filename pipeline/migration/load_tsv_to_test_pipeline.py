@@ -26,7 +26,7 @@ import os
 import sys
 
 # Allow running from any working directory
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'website', 'django'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'django'))
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'brca.settings')
 
 import django
