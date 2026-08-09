@@ -31,14 +31,20 @@ def textIfPresent(element, field):
 
     
 three_letters_aa = re.compile('p.\\(?[A-Z][a-z]{2}[0-9]+[A-Z][a-z]{2}') # e.g. p.(Tyr831SerfsTer9)
+single_letter_aa_change = re.compile(r'^[A-Z][0-9]+[A-Z=]$') # e.g. S76X, R245X, E1703V, S309=
 
 
 def is_bic_designation(s):
     """True if a ClinVar OtherNameList/Name synonym looks like a BIC (pre-HGVS)
     designator rather than an HGVS-style name."""
+    if ':' in s:
+        # A colon always marks an accession-qualified HGVS name
+        # (NM_/NC_/NG_/NP_/LRG_...:c./g./p./n.), never legacy BIC nomenclature.
+        return False
     return any(k in s.lower() for k in {'ins', 'del', 'dup'}) or \
         (not s.startswith('p.') and '>' in s) or \
-        (s.startswith('p.') and ':' not in s and three_letters_aa.match(s) is None) # shouldn't match for a BIC designator
+        (s.startswith('p.') and three_letters_aa.match(s) is None) or \
+        single_letter_aa_change.match(s) is not None # shouldn't match for a BIC designator
 
 
 def findUniqueElement(name, parent):
@@ -173,7 +179,15 @@ class genomicCoordinates:
 class variant:
     """The variant (SimpleAllele) set.  """
 
-    def __init__(self, element, target_gene_symbols=None, debug=True):
+    def __init__(self, element, target_gene_symbols=None, gene_chromosomes=None, debug=True):
+        """
+        :param gene_chromosomes: optional dict mapping gene symbol -> expected
+            chromosome (int), e.g. from common.config.load_config(...)['chr'].
+            When given, a GeneList entry is rejected if its gene's expected
+            chromosome doesn't match this variant's own genomic coordinates --
+            ClinVar's GeneList occasionally tags a variant with a gene symbol
+            that doesn't belong on that chromosome.
+        """
         self.element = element
         self.valid = True
         self.variantType = textIfPresent(element, "VariantType")
@@ -183,6 +197,12 @@ class variant:
             self.id = None
         if debug:
             print("Parsing variant", self.id)
+        location = element.find("Location")
+        if location is None:
+            self.valid = False
+            return
+        self.coordinates = extract_genomic_coordinates_from_location(location)
+        variant_chrom = next((c.chr for c in self.coordinates.values()), None)
         self.geneSymbol = None
         geneList = element.find("GeneList")
         if geneList is not None:
@@ -194,16 +214,19 @@ class variant:
                 else:
                     if geneSymbol in target_gene_symbols:
                         goodSymbol = True
+                if goodSymbol and gene_chromosomes and variant_chrom is not None:
+                    expected_chrom = gene_chromosomes.get(geneSymbol)
+                    if expected_chrom is not None and expected_chrom != variant_chrom:
+                        logging.warning(
+                            "Rejecting gene symbol %s for variant %s: %s is on chromosome %s, "
+                            "not chromosome %s", geneSymbol, self.id, geneSymbol,
+                            expected_chrom, variant_chrom)
+                        goodSymbol = False
                 if goodSymbol:
                     if self.geneSymbol is None:
                         self.geneSymbol = geneSymbol
                     else:
                         self.geneSymbol = self.geneSymbol + "," + geneSymbol
-        location = element.find("Location")
-        if location is None:
-            self.valid = False
-            return
-        self.coordinates = extract_genomic_coordinates_from_location(location)
         self.hgvs_cdna = None
         self.proteinChange = None
         self.synonyms = list()
@@ -363,7 +386,7 @@ class variationArchive:
     one or more submissions ("SCV Accessions").
     """
 
-    def __init__(self, element, gene_symbols=None,
+    def __init__(self, element, gene_symbols=None, gene_chromosomes=None,
                  mane_transcripts=None, debug=False):
         self.element = element
         self.id = element.get("VariationID")
@@ -375,7 +398,7 @@ class variationArchive:
             self.valid = False
             return
         self.variant = variant(sa, target_gene_symbols=gene_symbols,
-                               debug=False)
+                               gene_chromosomes=gene_chromosomes, debug=False)
         if not self.variant.valid:
             self.valid = False
             return
