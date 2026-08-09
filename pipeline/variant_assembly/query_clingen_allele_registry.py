@@ -224,17 +224,24 @@ def main(db_url, schema, overwrite):
                 _extract(data, vrs_digest)
 
             if ca_id:
-                ref_seq = hgvs_cdna.split(':')[0] if hgvs_cdna and ':' in hgvs_cdna else '-'
-                # Store only the c./n./g. part without the transcript accession prefix
+                # hgvs_cdna/ensembl_cdna/hgvs_protein/ensembl_protein/ref_seq come from
+                # the MANE Select block, which ClinGen omits for some variants (e.g. large
+                # SVs, deep intronic) even when it has registered a CA_ID. Leave them as
+                # None (rather than '-') so the UPDATE's COALESCE preserves whatever value
+                # is already in the table instead of blanking out a value another task
+                # (e.g. pseudonym_generator) may have already computed.
                 if hgvs_cdna and ':' in hgvs_cdna:
+                    ref_seq = hgvs_cdna.split(':')[0]
                     hgvs_cdna = hgvs_cdna.split(':', 1)[1]
+                else:
+                    ref_seq = None
                 variant_updates.append((
                     ca_id,
                     title or '-',
-                    hgvs_cdna or '-',
-                    ensembl_cdna or '-',
-                    hgvs_protein or '-',
-                    ensembl_protein or '-',
+                    hgvs_cdna,
+                    ensembl_cdna,
+                    hgvs_protein,
+                    ensembl_protein,
                     synonyms,
                     ref_seq,
                     gene_symbol or '-',
@@ -253,9 +260,13 @@ def main(db_url, schema, overwrite):
                 batch = variant_updates[i : i + BATCH_SIZE]
                 cur.executemany(
                     """UPDATE variant
-                       SET "CA_ID" = %s, title = %s, "HGVS_cDNA" = %s, ensembl_cdna = %s,
-                           "HGVS_Protein" = %s, ensembl_protein = %s, "Synonyms" = %s,
-                           "Reference_Sequence" = %s,
+                       SET "CA_ID" = %s, title = %s,
+                           "HGVS_cDNA" = COALESCE(%s, "HGVS_cDNA"),
+                           ensembl_cdna = COALESCE(%s, ensembl_cdna),
+                           "HGVS_Protein" = COALESCE(%s, "HGVS_Protein"),
+                           ensembl_protein = COALESCE(%s, ensembl_protein),
+                           "Synonyms" = %s,
+                           "Reference_Sequence" = COALESCE(%s, "Reference_Sequence"),
                            "Gene_Symbol" = CASE WHEN "Gene_Symbol" = '-' THEN %s ELSE "Gene_Symbol" END
                        WHERE "VRS_Digest" = %s""",
                     batch,
