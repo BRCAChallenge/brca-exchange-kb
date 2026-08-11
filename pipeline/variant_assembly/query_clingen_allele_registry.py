@@ -16,6 +16,13 @@ Also inserts a GRCh37 row into genomic_coordinates for each genomicAllele
 whose referenceGenome is 'GRCh37' (skipped if row already exists).
 
 Variants that already have a CA_ID are skipped unless --overwrite is set.
+
+Some variants (e.g. gnomAD-only, never submitted to any registry) resolve to
+a live but unregistered ClinGen response -- resp['@id'] is a JSON-LD blank
+node like "_:CA" rather than a real "CA123456" accession -- that still
+carries a usable MANE Select transcript/gene context. Those fields are
+written regardless of whether a persistent CA_ID was minted; CA_ID and title
+are only ever backfilled (via COALESCE), never blanked out.
 """
 
 import logging
@@ -223,30 +230,33 @@ def main(db_url, schema, overwrite):
             ca_id, title, hgvs_cdna, ensembl_cdna, hgvs_protein, ensembl_protein, synonyms, coord_rows, gene_symbol = \
                 _extract(data, vrs_digest)
 
-            if ca_id:
-                # hgvs_cdna/ensembl_cdna/hgvs_protein/ensembl_protein/ref_seq come from
-                # the MANE Select block, which ClinGen omits for some variants (e.g. large
-                # SVs, deep intronic) even when it has registered a CA_ID. Leave them as
-                # None (rather than '-') so the UPDATE's COALESCE preserves whatever value
-                # is already in the table instead of blanking out a value another task
-                # (e.g. pseudonym_generator) may have already computed.
-                if hgvs_cdna and ':' in hgvs_cdna:
-                    ref_seq = hgvs_cdna.split(':')[0]
-                    hgvs_cdna = hgvs_cdna.split(':', 1)[1]
-                else:
-                    ref_seq = None
-                variant_updates.append((
-                    ca_id,
-                    title or '-',
-                    hgvs_cdna,
-                    ensembl_cdna,
-                    hgvs_protein,
-                    ensembl_protein,
-                    synonyms,
-                    ref_seq,
-                    gene_symbol or '-',
-                    vrs_digest,
-                ))
+            # hgvs_cdna/ensembl_cdna/hgvs_protein/ensembl_protein/ref_seq come from
+            # the MANE Select block, which ClinGen omits for some variants (e.g. large
+            # SVs, deep intronic) even when it has registered a CA_ID. Leave them as
+            # None (rather than '-') so the UPDATE's COALESCE preserves whatever value
+            # is already in the table instead of blanking out a value another task
+            # (e.g. pseudonym_generator) may have already computed. ca_id and title are
+            # COALESCE'd the same way (not written unconditionally): an unregistered
+            # response (no persistent CA_ID) still carries usable MANE/gene data worth
+            # keeping, and a previous run's real CA_ID must never be erased by a later
+            # response that happens to lack one.
+            if hgvs_cdna and ':' in hgvs_cdna:
+                ref_seq = hgvs_cdna.split(':')[0]
+                hgvs_cdna = hgvs_cdna.split(':', 1)[1]
+            else:
+                ref_seq = None
+            variant_updates.append((
+                ca_id,
+                title,
+                hgvs_cdna,
+                ensembl_cdna,
+                hgvs_protein,
+                ensembl_protein,
+                synonyms,
+                ref_seq,
+                gene_symbol or '-',
+                vrs_digest,
+            ))
 
             coord_inserts.extend(coord_rows)
 
@@ -260,7 +270,8 @@ def main(db_url, schema, overwrite):
                 batch = variant_updates[i : i + BATCH_SIZE]
                 cur.executemany(
                     """UPDATE variant
-                       SET "CA_ID" = %s, title = %s,
+                       SET "CA_ID" = COALESCE(%s, "CA_ID"),
+                           title = COALESCE(%s, title),
                            "HGVS_cDNA" = COALESCE(%s, "HGVS_cDNA"),
                            ensembl_cdna = COALESCE(%s, ensembl_cdna),
                            "HGVS_Protein" = COALESCE(%s, "HGVS_Protein"),
