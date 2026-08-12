@@ -439,7 +439,7 @@ def _normalize_gene_symbol(gene_symbol, known_genes):
 
 
 def _load_rows_from_db(conn, schema):
-    """Return list of row dicts from DB (variant JOIN genomic_coordinates GRCh38)."""
+    """Return list of row dicts from DB (variant JOIN variant_genomic_coordinates GRCh38)."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(f"""
             SELECT
@@ -453,7 +453,7 @@ def _load_rows_from_db(conn, schema):
                 COALESCE(v."HGVS_cDNA",  '-') AS "HGVS_cDNA",
                 COALESCE(v."Synonyms",   '-') AS "Synonyms"
             FROM {schema}.variant v
-            JOIN {schema}.genomic_coordinates gc
+            JOIN {schema}.variant_genomic_coordinates gc
               ON gc."VRS_Digest_id" = v."VRS_Digest"
              AND gc.assembly = 'GRCh38'
             WHERE gc.chr IS NOT NULL AND gc.pos IS NOT NULL
@@ -491,7 +491,7 @@ def _write_rows_to_db(conn, schema, processed_rows):
             hg37_hgvs = row.get(GENOMIC_HGVS_HG37_COL) or row.get(PYHGVS_GENOMIC_COORDINATE_37_COL)
             if hg37_hgvs and str(hg37_hgvs).strip() not in ('', 'None', '-'):
                 cur.execute(f"""
-                    INSERT INTO {schema}.genomic_coordinates
+                    INSERT INTO {schema}.variant_genomic_coordinates
                         ("VRS_Digest_id", assembly, hgvs)
                     VALUES (%s, 'GRCh37', %s)
                     ON CONFLICT ("VRS_Digest_id", assembly) DO UPDATE

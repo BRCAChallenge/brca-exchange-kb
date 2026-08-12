@@ -1,7 +1,7 @@
 """
 Run VEP on all variants and populate analysis_vep.
 
-For each variant with a GRCh38 genomic HGVS in genomic_coordinates,
+For each variant with a GRCh38 genomic HGVS in variant_genomic_coordinates,
 queries the local VEP server in batches and stores variant_class and
 varType in the analysis_vep table.
 
@@ -71,14 +71,14 @@ def main(db_url, schema, vep_url, overwrite):
             if overwrite:
                 cur.execute("""
                     SELECT gc."VRS_Digest_id", gc.hgvs, gc.ref, gc.alt
-                    FROM genomic_coordinates gc
+                    FROM variant_genomic_coordinates gc
                     WHERE gc.assembly = 'GRCh38'
                       AND gc.hgvs IS NOT NULL AND gc.hgvs <> ''
                 """)
             else:
                 cur.execute("""
                     SELECT gc."VRS_Digest_id", gc.hgvs, gc.ref, gc.alt
-                    FROM genomic_coordinates gc
+                    FROM variant_genomic_coordinates gc
                     LEFT JOIN analysis_vep av ON av."VRS_Digest" = gc."VRS_Digest_id"
                     WHERE gc.assembly = 'GRCh38'
                       AND gc.hgvs IS NOT NULL AND gc.hgvs <> ''

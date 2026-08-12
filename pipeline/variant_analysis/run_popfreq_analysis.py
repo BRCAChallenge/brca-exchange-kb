@@ -5,7 +5,7 @@
 Populate analysis_provisional_evidence_codes from the database.
 
 Reads gnomAD v4 data from report_gnomad, GRCh38 coordinates from
-genomic_coordinates, and computes provisional population frequency
+variant_genomic_coordinates, and computes provisional population frequency
 evidence codes for each variant. Results are upserted into
 analysis_provisional_evidence_codes.
 
@@ -421,7 +421,7 @@ SELECT v."VRS_Digest", v."HGVS_cDNA",
        rg."Flags", rg."Allele_count",
        rg.faf95_popmax, rg.faf95_popmax_population
 FROM variant v
-JOIN genomic_coordinates gc
+JOIN variant_genomic_coordinates gc
      ON gc."VRS_Digest_id" = v."VRS_Digest" AND gc.assembly = 'GRCh38'
 LEFT JOIN report_gnomad rg
      ON rg."VRS_Digest_id" = v."VRS_Digest" AND rg.version = 'v4.1' AND rg.data_type = 'joint'

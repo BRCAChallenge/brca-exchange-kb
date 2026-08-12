@@ -21,23 +21,6 @@ class LegacyJSONField(JSONField):
         return value
 
 
-class ChangeType(models.Model):
-    """
-    Referenced by 0003_populate_database.py, whose actual operations are
-    disabled (operations = []) — not used by any current model.
-    """
-    name = models.TextField()
-
-
-class MupitStructure(models.Model):
-    """Referenced only via data/utilities.py's module-level import."""
-    name = models.TextField()
-
-
-class CurrentVariant(models.Model):
-    """Referenced only via data/utilities.py's module-level import."""
-    pass
-
 # ------------------------------------------------------------------------
 # --- Base models
 # ------------------------------------------------------------------------
@@ -103,7 +86,7 @@ class Genomic_Coordinates(models.Model):
     alt = models.TextField()
 
     class Meta:
-        db_table = 'genomic_coordinates'
+        db_table = 'variant_genomic_coordinates'
         unique_together = (('VRS_Digest', 'assembly'),)
 
 
@@ -295,20 +278,6 @@ class Variant_in_Paper(models.Model):
 
 
 
-class InSilicoPriors(models.Model):
-    """In silico prior probabilities."""
-
-    class Meta:
-        db_table = 'data_insilicopriors'
-
-
-class VariantRepresentation(models.Model):
-    """Variant representation in different formats."""
-
-    class Meta:
-        db_table = 'data_variantrepresentation'
-
-
 class AnalysisVEP(models.Model):
     """VEP annotation results for a variant."""
     VRS_Digest    = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE,
@@ -428,4 +397,4 @@ class EnigmaDomain(models.Model):
     end      = models.IntegerField()
 
     class Meta:
-        db_table = 'enigma_domain'
+        db_table = 'data_enigma_domain'

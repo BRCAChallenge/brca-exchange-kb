@@ -7,7 +7,7 @@ Usage:
 
 Runs compare_table.py for each table and writes output files to DIR:
     variant.detail.txt
-    genomic_coordinates.detail.txt
+    variant_genomic_coordinates.detail.txt
     variant_gnomad.detail.txt
     report_gnomad.detail.txt
     variant_lovd.detail.txt
@@ -24,7 +24,7 @@ Runs compare_table.py for each table and writes output files to DIR:
 
 variant uses VRS_Digest as its natural primary key.
 
-genomic_coordinates uses (VRS_Digest_id, assembly) as the natural key for
+variant_genomic_coordinates uses (VRS_Digest_id, assembly) as the natural key for
 matching rows, since its surrogate id column differs across schemas. That same
 id column is also omitted from the diff itself, since it always differs.
 
@@ -60,7 +60,7 @@ _COMPARE = os.path.join(_SCRIPT_DIR, 'compare_table.py')
 
 TABLES = [
     dict(table='variant',              pk=None, omit=['Synonyms', 'VRS', 'ensembl_cdna', 'ensembl_protein', 'title']),
-    dict(table='genomic_coordinates',  pk=['VRS_Digest_id', 'assembly'], omit=['id']),
+    dict(table='variant_genomic_coordinates',  pk=['VRS_Digest_id', 'assembly'], omit=['id']),
     dict(table='variant_gnomad', pk=None, omit=None),
     dict(table='report_gnomad',  pk=['VRS_Digest_id', 'version', 'data_type'], omit=['id']),
     dict(table='variant_lovd',   pk=None, omit=None),

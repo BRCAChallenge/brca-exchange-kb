@@ -59,13 +59,13 @@ def main(db_url, schema, victor_vcf, overwrite):
             if overwrite:
                 cur.execute("""
                     SELECT gc."VRS_Digest_id", gc.chr, gc.pos, gc.ref, gc.alt
-                    FROM genomic_coordinates gc
+                    FROM variant_genomic_coordinates gc
                     WHERE gc.assembly = 'GRCh38'
                 """)
             else:
                 cur.execute("""
                     SELECT gc."VRS_Digest_id", gc.chr, gc.pos, gc.ref, gc.alt
-                    FROM genomic_coordinates gc
+                    FROM variant_genomic_coordinates gc
                     LEFT JOIN analysis_bayesdel ab ON ab."VRS_Digest" = gc."VRS_Digest_id"
                     WHERE gc.assembly = 'GRCh38'
                       AND ab."VRS_Digest" IS NULL

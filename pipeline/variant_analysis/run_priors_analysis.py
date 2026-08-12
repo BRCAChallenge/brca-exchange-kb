@@ -115,7 +115,7 @@ def main(db_url, schema, processes, overwrite, limit, uta_db_url):
                     SELECT v."VRS_Digest", v."Gene_Symbol", v."Reference_Sequence", v."HGVS_cDNA",
                            gc.chr, gc.pos, gc.ref, gc.alt
                     FROM variant v
-                    JOIN genomic_coordinates gc ON gc."VRS_Digest_id" = v."VRS_Digest"
+                    JOIN variant_genomic_coordinates gc ON gc."VRS_Digest_id" = v."VRS_Digest"
                     JOIN analysis_vep av ON av."VRS_Digest" = v."VRS_Digest"
                     WHERE gc.assembly = 'GRCh38'
                       AND av.variant_type = 'substitution'
@@ -126,7 +126,7 @@ def main(db_url, schema, processes, overwrite, limit, uta_db_url):
                     SELECT v."VRS_Digest", v."Gene_Symbol", v."Reference_Sequence", v."HGVS_cDNA",
                            gc.chr, gc.pos, gc.ref, gc.alt
                     FROM variant v
-                    JOIN genomic_coordinates gc ON gc."VRS_Digest_id" = v."VRS_Digest"
+                    JOIN variant_genomic_coordinates gc ON gc."VRS_Digest_id" = v."VRS_Digest"
                     JOIN analysis_vep av ON av."VRS_Digest" = v."VRS_Digest"
                     LEFT JOIN analysis_priors ap ON ap."VRS_Digest" = v."VRS_Digest"
                     WHERE gc.assembly = 'GRCh38'

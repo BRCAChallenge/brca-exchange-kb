@@ -12,7 +12,7 @@ HGVS string, then populate variant fields:
   - Gene_Symbol     ← geneSymbol from the MANE Select transcriptAllele (only set when
                        current value is '-', to avoid overwriting authoritative sources)
 
-Also inserts a GRCh37 row into genomic_coordinates for each genomicAllele
+Also inserts a GRCh37 row into variant_genomic_coordinates for each genomicAllele
 whose referenceGenome is 'GRCh37' (skipped if row already exists).
 
 Variants that already have a CA_ID are skipped unless --overwrite is set.
@@ -108,9 +108,9 @@ def _synonyms(data):
 
 
 def _grch37_coords(data, vrs_digest):
-    """Return a list of genomic_coordinates rows for GRCh37 genomicAlleles.
+    """Return a list of variant_genomic_coordinates rows for GRCh37 genomicAlleles.
 
-    Each row is a dict ready for INSERT into genomic_coordinates.
+    Each row is a dict ready for INSERT into variant_genomic_coordinates.
     The NC_ accession HGVS is preferred; falls back to the first hgvs entry.
     """
     rows = []
@@ -161,7 +161,7 @@ def _extract(data, vrs_digest):
               envvar='PIPELINE_DB_URL', show_default=True,
               help='PostgreSQL connection URL for the pipeline DB')
 @click.option('--schema', default='pipeline', show_default=True,
-              help='Schema containing variant and genomic_coordinates')
+              help='Schema containing variant and variant_genomic_coordinates')
 @click.option('--overwrite', is_flag=True, default=False,
               help='Update variants that already have a CA_ID')
 def main(db_url, schema, overwrite):
@@ -173,14 +173,14 @@ def main(db_url, schema, overwrite):
             if overwrite:
                 cur.execute("""
                     SELECT gc."VRS_Digest_id", gc.hgvs
-                    FROM genomic_coordinates gc
+                    FROM variant_genomic_coordinates gc
                     WHERE gc.assembly = 'GRCh38'
                       AND gc.hgvs IS NOT NULL AND gc.hgvs <> ''
                 """)
             else:
                 cur.execute("""
                     SELECT gc."VRS_Digest_id", gc.hgvs
-                    FROM genomic_coordinates gc
+                    FROM variant_genomic_coordinates gc
                     JOIN variant v ON v."VRS_Digest" = gc."VRS_Digest_id"
                     WHERE gc.assembly = 'GRCh38'
                       AND gc.hgvs IS NOT NULL AND gc.hgvs <> ''
@@ -260,7 +260,7 @@ def main(db_url, schema, overwrite):
                 batch = coord_inserts[i : i + BATCH_SIZE]
                 psycopg2.extras.execute_values(
                     cur,
-                    """INSERT INTO genomic_coordinates
+                    """INSERT INTO variant_genomic_coordinates
                            ("VRS_Digest_id", assembly, hgvs, chr, pos, end_pos, ref, alt)
                        VALUES %s
                        ON CONFLICT ("VRS_Digest_id", assembly) DO NOTHING""",

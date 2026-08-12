@@ -7,7 +7,7 @@ Usage:
         --reports-tsv /path/to/reports_with_change_types.tsv
 
 Pass 1 (built TSV, one row per variant):
-    Populates: variant, genomic_coordinates, variant_enigma,
+    Populates: variant, variant_genomic_coordinates, variant_enigma,
                variant_clinvar, variant_lovd, variant_exlovd, variant_gnomad,
                analysis_priors, analysis_bayesdel,
                analysis_provisional_evidence_codes.
@@ -47,7 +47,7 @@ FLUSH_ORDER = [
     'analysis_provisional_evidence_codes',
     'analysis_bayesdel',
     'analysis_priors',
-    'genomic_coordinates',
+    'variant_genomic_coordinates',
     'variant',
 ]
 
@@ -125,14 +125,14 @@ def load_variant_row(row, digest, counts):
 
     with connections[DB].cursor() as cur:
         cur.execute(
-            '''INSERT INTO genomic_coordinates
+            '''INSERT INTO variant_genomic_coordinates
                    ("VRS_Digest_id", assembly, hgvs, genome_browser_url, chr, pos, ref, alt)
                VALUES (%s,'GRCh38',%s,%s,%s,%s,%s,%s)''',
             [digest, f(row, 'Genomic_HGVS_38'),
              ucsc(row['Chr'], row['Pos']),
              row['Chr'], row['Pos'], row['Ref'], row['Alt']],
         )
-    counts['genomic_coordinates'] += 1
+    counts['variant_genomic_coordinates'] += 1
 
     if 'ENIGMA' in sources:
         with connections[DB].cursor() as cur:
@@ -383,9 +383,9 @@ def backfill_genomic_chr(reference_schema):
     """Copy chr from reference_schema where the TSV stored a bare chromosome number
     but the VCF pipeline stored it with a 'chr' prefix."""
     sql = f"""
-        UPDATE test_pipeline.genomic_coordinates t
+        UPDATE test_pipeline.variant_genomic_coordinates t
         SET chr = p.chr
-        FROM {reference_schema}.genomic_coordinates p
+        FROM {reference_schema}.variant_genomic_coordinates p
         WHERE t."VRS_Digest_id" = p."VRS_Digest_id"
           AND t.assembly = p.assembly
           AND t.chr != p.chr
@@ -477,7 +477,7 @@ def main():
     updated = backfill_enigma_condition(args.reference_schema)
     print(f'  variant_enigma Condition_ID_value: {updated} rows updated')
     updated = backfill_genomic_chr(args.reference_schema)
-    print(f'  genomic_coordinates chr prefix: {updated} rows updated')
+    print(f'  variant_genomic_coordinates chr prefix: {updated} rows updated')
 
     print()
     for table in FLUSH_ORDER:

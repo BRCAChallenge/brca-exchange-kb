@@ -14,7 +14,7 @@ from django.http import JsonResponse, HttpResponse, HttpResponseBadRequest
 from django.views.decorators.gzip import gzip_page
 from .models import (
     Variant, DataRelease,
-    InSilicoPriors, Variant_in_Paper, Paper, VariantRepresentation
+    Variant_in_Paper, Paper
 )
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
@@ -135,26 +135,6 @@ def vrid(request):
 
     response = JsonResponse({"data": {k: variant_data[k] for k in variant_data if k in relevant_keys}})
     response['Access-Control-Allow-Origin'] = '*'
-    return response
-
-
-def variantreps(request):
-    vr_reps = list(
-        VariantRepresentation.objects.raw("""
-        select VR.id, VR."Genomic_Coordinate_hg38", V.id as Variant_id, VR."Description" from data_variantrepresentation VR
-        inner join variant V on V."Genomic_Coordinate_hg38" = VR."Genomic_Coordinate_hg38"
-        """)
-    )
-
-    response = JsonResponse({
-        "count": len(vr_reps),
-        "data": list(
-            {'id': x.variant_id, 'Genomic_Coordinate_hg38': x.Genomic_Coordinate_hg38, 'vr_rep': x.Description}
-            for x in vr_reps
-        )
-    })
-    response['Access-Control-Allow-Origin'] = '*'
-
     return response
 
 

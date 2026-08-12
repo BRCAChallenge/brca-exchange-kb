@@ -5,15 +5,15 @@ Usage:
     python manage.py load_vcf [--vcf-out /path/to/vcf_out]
 
 Sources (in priority order for Variant fields):
-  1. ENIGMA          → variant, genomic_coordinates, variant_enigma
-  2. ClinVar         → variant (upsert), genomic_coordinates, variant_clinvar, report_clinvar
-  3. LOVD            → variant (upsert), genomic_coordinates, variant_lovd, report_lovd
-  4. exLOVD          → variant (upsert), genomic_coordinates, variant_exlovd
-  5. gnomAD v2       → variant, genomic_coordinates, variant_gnomad, report_gnomad (data_type=exome)
-  6. gnomAD v3       → variant, genomic_coordinates, variant_gnomad, report_gnomad (data_type=genome)
-  7. gnomAD v4       → variant, genomic_coordinates, variant_gnomad, report_gnomad (data_type=joint)
-  8. gnomAD v4.1 joint  → variant, genomic_coordinates, variant_gnomad, report_gnomad (data_type=joint)
-  9. gnomAD v4.1 exome  → variant, genomic_coordinates, variant_gnomad, report_gnomad (data_type=exome)
+  1. ENIGMA          → variant, variant_genomic_coordinates, variant_enigma
+  2. ClinVar         → variant (upsert), variant_genomic_coordinates, variant_clinvar, report_clinvar
+  3. LOVD            → variant (upsert), variant_genomic_coordinates, variant_lovd, report_lovd
+  4. exLOVD          → variant (upsert), variant_genomic_coordinates, variant_exlovd
+  5. gnomAD v2       → variant, variant_genomic_coordinates, variant_gnomad, report_gnomad (data_type=exome)
+  6. gnomAD v3       → variant, variant_genomic_coordinates, variant_gnomad, report_gnomad (data_type=genome)
+  7. gnomAD v4       → variant, variant_genomic_coordinates, variant_gnomad, report_gnomad (data_type=joint)
+  8. gnomAD v4.1 joint  → variant, variant_genomic_coordinates, variant_gnomad, report_gnomad (data_type=joint)
+  9. gnomAD v4.1 exome  → variant, variant_genomic_coordinates, variant_gnomad, report_gnomad (data_type=exome)
 """
 
 import csv
@@ -246,7 +246,7 @@ class Command(BaseCommand):
             'report_clinvar', 'variant_clinvar',
             'variant_enigma',
             'variant_other',
-            'genomic_coordinates',
+            'variant_genomic_coordinates',
             'variant',
         ]
         with connections[DB].cursor() as cur:
@@ -607,7 +607,7 @@ class Command(BaseCommand):
         self.stdout.write('')
         rows = [
             ('variant',              Variant),
-            ('genomic_coordinates',  Genomic_Coordinates),
+            ('variant_genomic_coordinates',  Genomic_Coordinates),
             ('variant_enigma',       Variant_in_ENIGMA),
             ('variant_clinvar',      Variant_in_ClinVar),
             ('report_clinvar',       Report_in_ClinVar),

@@ -885,7 +885,7 @@ class VRSAnnotateVaraico(VCFAssemblyTask):
 
 @requires(LoadVCFsToDatabase)
 class ComputeGenomicHGVS(VCFAssemblyTask):
-    """Populate genomic_coordinates.hgvs with normalized genomic HGVS strings."""
+    """Populate variant_genomic_coordinates.hgvs with normalized genomic HGVS strings."""
 
     def output(self):
         return luigi.LocalTarget(os.path.join(self.vcf_dir, "compute_genomic_hgvs.done"))
@@ -906,7 +906,7 @@ class ComputeGenomicHGVS(VCFAssemblyTask):
 class QueryClinGenAlleleRegistry(VCFAssemblyTask):
     """Populate variant CA_ID, title, HGVS_cDNA, ensembl_cdna, HGVS_Protein,
     ensembl_protein, and Synonyms from the ClinGen Allele Registry, and insert
-    GRCh37 rows into genomic_coordinates."""
+    GRCh37 rows into variant_genomic_coordinates."""
 
     def output(self):
         return luigi.LocalTarget(os.path.join(self.vcf_dir, "query_clingen_allele_registry.done"))
@@ -931,7 +931,7 @@ class RunPseudonymGenerator(VCFAssemblyTask):
 
     Reads variants directly from the pipeline DB and writes enriched fields
     (Reference_Sequence, HGVS_cDNA, HGVS_Protein, CA_ID, Synonyms, GRCh37
-    genomic_coordinates) back to the DB."""
+    variant_genomic_coordinates) back to the DB."""
 
     db_url = luigi.Parameter(
         default='postgresql://postgres:postgres@localhost/storage.pg',
@@ -961,7 +961,7 @@ class RunPseudonymGenerator(VCFAssemblyTask):
 ###############################################
 
 class LoadEnigmaDomains(VCFAssemblyTask):
-    """Populate enigma_domain with ENIGMA CI functional domain coordinates."""
+    """Populate data_enigma_domain with ENIGMA CI functional domain coordinates."""
 
     def output(self):
         return luigi.LocalTarget(os.path.join(self.vcf_dir, "load_enigma_domains.done"))
@@ -985,7 +985,7 @@ class LoadVaraicoPapersToDatabase(VCFAssemblyTask):
     variant_in_paper for varaico-mined BRCA1/BRCA2 variants already present in `variant`.
 
     Ordered as the final step of VCFAssembly: depends on every other task that
-    populates or enriches `variant`/`genomic_coordinates` (LoadVCFsToDatabase,
+    populates or enriches `variant`/`variant_genomic_coordinates` (LoadVCFsToDatabase,
     QueryClinGenAlleleRegistry, LoadEnigmaDomains, RunPseudonymGenerator), not just
     LoadVCFsToDatabase, so it always runs last instead of racing them."""
 
