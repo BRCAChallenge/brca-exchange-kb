@@ -676,22 +676,25 @@ class VRSAnnotateGnomADv41(VCFAssemblyTask):
 
     def run(self):
         joint_in, exome_in = self.input()
-        self._vrs_annotate(joint_in.path,
-                           self.output()["joint_vcf"].path,
-                           self.output()["joint_pkl"].path)
-        # gnomAD v4.1 exome ships with VRS_Allele_IDs already in the header;
-        # strip them so vrs-annotate can add its own.
+        # gnomAD v4.1 joint and exome VCFs both ship with VRS_Allele_IDs
+        # (and related VRS_* fields) already in the header; strip them
+        # first so vrs-annotate can add its own instead of hitting a
+        # duplicate-header error.
+        self._vrs_annotate_stripping_gnomad_headers(
+            joint_in.path, self.output()["joint_vcf"].path, self.output()["joint_pkl"].path)
+        self._vrs_annotate_stripping_gnomad_headers(
+            exome_in.path, self.output()["exome_vcf"].path, self.output()["exome_pkl"].path)
+
+    def _vrs_annotate_stripping_gnomad_headers(self, input_vcf, output_vcf_gz, output_pkl):
         with tempfile.NamedTemporaryFile(suffix='.vcf', delete=False) as tmp:
             stripped = tmp.name
         try:
             pipeline_utils.run_process([
                 'bcftools', 'annotate', '-x',
                 'INFO/VRS_Allele_IDs,INFO/VRS_Starts,INFO/VRS_Ends,INFO/VRS_States',
-                '-o', stripped, exome_in.path
+                '-o', stripped, input_vcf
             ])
-            self._vrs_annotate(stripped,
-                               self.output()["exome_vcf"].path,
-                               self.output()["exome_pkl"].path)
+            self._vrs_annotate(stripped, output_vcf_gz, output_pkl)
         finally:
             os.unlink(stripped)
 

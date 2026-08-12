@@ -2,7 +2,6 @@
 
 import argparse
 import csv
-import glob
 import logging
 import os
 import pandas as pd
@@ -69,8 +68,8 @@ def process_one_gene(chrom, start_coord, end_coord, output_vcf, download_url, lo
     bcftools_cmd = ["bcftools", "view", "-Oz","-r", vcf_range, local_file_vcf]
     logger.info("Selecting range of %s from %s" % (vcf_range, local_file_vcf))
     with open(output_vcf, "w") as f_out:
-        subprocess.run(bcftools_cmd, stdout=f_out)
-    subprocess.run(["bcftools", "index", "-t", output_vcf])
+        subprocess.run(bcftools_cmd, stdout=f_out, check=True)
+    subprocess.run(["bcftools", "index", "-t", output_vcf], check=True)
 
     # Step 3: cleanup.  Remove the big VCF file and its tbi file
     os.remove(local_file_vcf)
@@ -148,28 +147,41 @@ def main():
         postprocess(args.input_vcf, args.output, args.coverage, logger)
         return
 
+    # Resolve caller-supplied paths to absolute before changing into the
+    # scratch directory below.
+    output_path = os.path.abspath(args.output)
+    coverage_path = os.path.abspath(args.coverage)
+
     download_url = (GNOMAD_JOINT_DOWNLOAD_URL if args.source == 'joint'
                     else GNOMAD_EXOME_DOWNLOAD_URL)
     gene_config_data = csv.DictReader(args.gene_config)
-    tmp = tempfile.NamedTemporaryFile()
-    with open(tmp.name, 'w') as tmp_fp:
-        for row in gene_config_data:
-            output_vcf = "%s.gnomADv4.1.%s.vcf.gz" % (row["symbol"], args.source)
-            process_one_gene(row["chr"], row["start_hg38"], row["end_hg38"],
-                             output_vcf, download_url, logger)
-            tmp_fp.write(output_vcf + "\n")
-    merge_cmd = ["bcftools", "merge", "--file-list", tmp.name,
-                    "-Ov", "-o", "unsorted.vcf"]
-    subprocess.run(merge_cmd)
-    sort_cmd = ["bcftools", "sort", "unsorted.vcf",
-                "-Ov", "-o", "sorted.vcf"]
-    subprocess.run(sort_cmd)
-    postprocess("sorted.vcf", args.output, args.coverage, logger)
 
-    for thisfile in glob.glob("*.vcf.gz*"):
-        os.remove(thisfile)
-    os.remove("unsorted.vcf")
-    os.remove("sorted.vcf")
+    # process_one_gene() and the merge/sort steps below all use bare
+    # relative filenames (e.g. "17.vcf", "unsorted.vcf") -- isolate them in
+    # a private scratch directory so a concurrent invocation of this script
+    # (the Luigi pipeline runs --source joint and --source exome as
+    # independent, parallel tasks sharing the same cwd) can't read, write,
+    # or delete the same files out from under this one.
+    orig_cwd = os.getcwd()
+    with tempfile.TemporaryDirectory() as scratch_dir:
+        os.chdir(scratch_dir)
+        try:
+            tmp = tempfile.NamedTemporaryFile()
+            with open(tmp.name, 'w') as tmp_fp:
+                for row in gene_config_data:
+                    output_vcf = "%s.gnomADv4.1.%s.vcf.gz" % (row["symbol"], args.source)
+                    process_one_gene(row["chr"], row["start_hg38"], row["end_hg38"],
+                                     output_vcf, download_url, logger)
+                    tmp_fp.write(output_vcf + "\n")
+            merge_cmd = ["bcftools", "merge", "--file-list", tmp.name,
+                            "-Ov", "-o", "unsorted.vcf"]
+            subprocess.run(merge_cmd, check=True)
+            sort_cmd = ["bcftools", "sort", "unsorted.vcf",
+                        "-Ov", "-o", "sorted.vcf"]
+            subprocess.run(sort_cmd, check=True)
+            postprocess("sorted.vcf", output_path, coverage_path, logger)
+        finally:
+            os.chdir(orig_cwd)
 
 
 
