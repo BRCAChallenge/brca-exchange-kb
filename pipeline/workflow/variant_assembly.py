@@ -716,7 +716,7 @@ class LoadVCFsToDatabase(VCFAssemblyTask):
     """Call the load_vcf Django management command to load all VCFs into the pipeline DB."""
 
     django_dir = luigi.Parameter(
-        default='/data/new_schema/code/django',
+        default=os.path.join(_pipeline_dir, '..', 'django'),
         description='Directory containing Django manage.py')
 
     def output(self):
@@ -993,7 +993,7 @@ class LoadVaraicoPapersToDatabase(VCFAssemblyTask):
     LoadVCFsToDatabase, so it always runs last instead of racing them."""
 
     django_dir = luigi.Parameter(
-        default='/data/new_schema/code/django',
+        default=os.path.join(_pipeline_dir, '..', 'django'),
         description='Directory containing Django manage.py')
 
     def output(self):
