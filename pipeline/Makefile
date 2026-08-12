@@ -171,7 +171,7 @@ run-pipeline: ## Run the current luigi pipeline locally (no Docker); output logg
 	@echo "Pipeline log: $(PIPELINE_LOG)"
 	[ -d $(LOG_DIR)/tmp/luigi_venv ] || python -m venv $(LOG_DIR)/tmp/luigi_venv
 	. $(LOG_DIR)/tmp/luigi_venv/bin/activate
-	pip install -q luigi
+	pip install -q -r requirements.txt
 	PATH=$(LOG_DIR)/tmp/luigi_venv/bin:$(HOME)/bin:$(PATH) \
 	$(LOCAL_PIPELINE_ENV) \
 	python -m luigi --module $(VCF_ANALYSIS_MODULE) $(VCF_ANALYSIS_ROOT_TASK) \
