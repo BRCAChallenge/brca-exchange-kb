@@ -24,35 +24,19 @@ class LegacyJSONField(JSONField):
 class ChangeType(models.Model):
     """
     Referenced by 0003_populate_database.py, whose actual operations are
-    disabled (operations = []) — kept only so the migration graph still
-    loads. Not used by any current model; not migration-managed.
+    disabled (operations = []) — not used by any current model.
     """
     name = models.TextField()
-
-    class Meta:
-        managed = False
 
 
 class MupitStructure(models.Model):
-    """
-    Referenced only via data/utilities.py's module-level import (used by
-    functions unrelated to migration 0025's actual RunPython operation).
-    Kept only so that import succeeds. Not migration-managed.
-    """
+    """Referenced only via data/utilities.py's module-level import."""
     name = models.TextField()
-
-    class Meta:
-        managed = False
 
 
 class CurrentVariant(models.Model):
-    """
-    Referenced only via data/utilities.py's module-level import (used by
-    functions unrelated to migration 0025's actual RunPython operation).
-    Kept only so that import succeeds. Not migration-managed.
-    """
-    class Meta:
-        managed = False
+    """Referenced only via data/utilities.py's module-level import."""
+    pass
 
 # ------------------------------------------------------------------------
 # --- Base models
@@ -106,22 +90,21 @@ class Variant(models.Model):
 
     class Meta:
         db_table = 'variant'
-        managed = False
 
 
 class Genomic_Coordinates(models.Model):
     VRS_Digest = models.ForeignKey(Variant, on_delete=models.CASCADE, related_name='genomic_coordinates')
     assembly = models.TextField()
     hgvs = models.TextField()
-    genome_browser_url = models.TextField()
     chr = models.TextField()
     pos = models.TextField()
+    end_pos = models.TextField()
     ref = models.TextField()
     alt = models.TextField()
 
     class Meta:
         db_table = 'genomic_coordinates'
-        managed = False
+        unique_together = (('VRS_Digest', 'assembly'),)
 
 
 # ------------------------------------------------------------------------
@@ -136,7 +119,6 @@ class Variant_in_ClinVar(models.Model):
 
     class Meta:
         db_table = 'variant_clinvar'
-        managed = False
 
 
 class Variant_in_LOVD(models.Model):
@@ -148,58 +130,62 @@ class Variant_in_LOVD(models.Model):
 
     class Meta:
         db_table = 'variant_lovd'
-        managed = False
 
 
 class Variant_in_ExLOVD(models.Model):
     """exLOVD expert-curated BRCA1/2 data for a variant."""
     VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='exlovd_data')
 
-    Posterior_P = models.TextField(default='-')
-    IARC_Class = models.TextField(default='-')
-    Missense_Analysis_Prior_P = models.TextField(default='-')
-    Combined_Prior_P = models.TextField(default='-')
-    Segregation_LR = models.TextField(default='-')
+    Source_URL = models.TextField(null=True)
+    Exon = models.TextField(null=True)
+    DNA_Change = models.TextField(null=True)
+    BIC_DNA_Change = models.TextField(null=True)
+    Protein_Change = models.TextField(null=True)
+    DBID = models.TextField(null=True)
+    Posterior_P = models.TextField(default='-', null=True)
+    IARC_Class = models.TextField(default='-', null=True)
+    Missense_Analysis_Prior_P = models.TextField(default='-', null=True)
+    Combined_Prior_P = models.TextField(default='-', null=True)
+    Segregation_LR = models.TextField(default='-', null=True)
+    Splicing_Prior_P = models.TextField(null=True)
     Pathology_LR = models.TextField(null=True)
-    Co_Occurrence_LR = models.TextField(default='-')
+    Co_Occurrence_LR = models.TextField(default='-', null=True)
     Case_Control_LR = models.TextField(null=True)
-    Comments = models.TextField(default='-')
+    Product_Of_LRs = models.TextField(null=True)
+    Comments = models.TextField(default='-', null=True)
 
     class Meta:
         db_table = 'variant_exlovd'
-        managed = False
 
 
 class Variant_in_GnomAD(models.Model):
     """Per-variant gnomAD anchor row (one per variant across all versions)."""
     VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='gnomad_data')
 
-    Source_URL = models.TextField(default='-')
+    Source_URL = models.TextField(default='-', null=True)
 
     class Meta:
         db_table = 'variant_gnomad'
-        managed = False
 
 
 class Report_in_GnomAD(models.Model):
     """GnomAD frequency data — one row per variant per version and data type."""
     VRS_Digest = models.ForeignKey(Variant_in_GnomAD, on_delete=models.CASCADE, related_name='gnomad_reports')
 
-    version = models.TextField()
+    version = models.TextField(null=True)
     data_type = models.TextField(default='-')    # 'joint', 'genome', or 'exome'
-    Variant_id = models.TextField(default='-', db_index=True)
-    Flags = models.TextField(default='-')
+    Variant_id = models.TextField(default='-', null=True, db_index=True)
+    Flags = models.TextField(default='-', null=True)
     coverage = models.TextField(default='-')
-    Allele_count = models.TextField(default='-')
-    Allele_number = models.TextField(default='-')
-    Allele_frequency = models.TextField(default='-')
-    faf95_popmax = models.TextField(default='-')
-    faf95_popmax_population = models.TextField(default='-')
+    Allele_count = models.TextField(default='-', null=True)
+    Allele_number = models.TextField(default='-', null=True)
+    Allele_frequency = models.TextField(default='-', null=True)
+    faf95_popmax = models.TextField(default='-', null=True)
+    faf95_popmax_population = models.TextField(default='-', null=True)
     populations = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = 'report_gnomad'
-        managed = False
         unique_together = ('VRS_Digest', 'version', 'data_type')
 
 
@@ -212,7 +198,6 @@ class Variant_in_Other(models.Model):
 
     class Meta:
         db_table = 'variant_other'
-        managed = False
 
 
 
@@ -235,7 +220,6 @@ class Variant_in_ENIGMA(models.Model):
 
     class Meta:
         db_table = 'variant_enigma'
-        managed = False
 
 
 class Report_in_ClinVar(models.Model):
@@ -259,7 +243,6 @@ class Report_in_ClinVar(models.Model):
 
     class Meta:
         db_table = 'report_clinvar'
-        managed = False
 
 
 class Report_in_LOVD(models.Model):
@@ -282,7 +265,6 @@ class Report_in_LOVD(models.Model):
 
     class Meta:
         db_table = 'report_lovd'
-        managed = False
 
 
 # ------------------------------------------------------------------------
@@ -318,7 +300,6 @@ class InSilicoPriors(models.Model):
 
     class Meta:
         db_table = 'data_insilicopriors'
-        managed = False
 
 
 class VariantRepresentation(models.Model):
@@ -326,7 +307,6 @@ class VariantRepresentation(models.Model):
 
     class Meta:
         db_table = 'data_variantrepresentation'
-        managed = False
 
 
 class AnalysisVEP(models.Model):
@@ -335,10 +315,10 @@ class AnalysisVEP(models.Model):
                                          related_name='vep_analysis')
     variant_class = models.TextField(null=True)
     variant_type  = models.TextField(null=True)
+    VA_Spec       = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = 'analysis_vep'
-        managed = False
 
 
 class AnalysisBayesDel(models.Model):
@@ -346,10 +326,10 @@ class AnalysisBayesDel(models.Model):
     VRS_Digest               = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE,
                                                      related_name='bayesdel_analysis')
     BayesDel_nsfp33a_noAF   = models.TextField(null=True)
+    VA_Spec                 = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = 'analysis_bayesdel'
-        managed = False
 
 
 class AnalysisSpliceAI(models.Model):
@@ -365,23 +345,27 @@ class AnalysisSpliceAI(models.Model):
     DP_DG  = models.TextField(null=True)
     DP_DL  = models.TextField(null=True)
     result = models.TextField(null=True)
+    VA_Spec = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = 'analysis_spliceai'
-        managed = False
 
 
 class AnalysisProvisionalEvidenceCodes(models.Model):
-    """Provisional evidence codes for a variant."""
-    VRS_Digest          = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE,
-                                               related_name='provisional_evidence_codes')
+    """Provisional evidence codes for a variant. Multiple rows per variant,
+    one per method_name."""
+    VRS_Digest          = models.ForeignKey(Variant, on_delete=models.CASCADE,
+                                             related_name='provisional_evidence_codes')
     popfreq_code        = models.TextField(null=True)
     popfreq_description = models.TextField(null=True)
-    method_name         = models.TextField(null=True)
+    method_name         = models.TextField()
+    gnomad_version      = models.TextField(null=True)
+    gnomad_data_type    = models.TextField(null=True)
+    VA_Spec             = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = 'analysis_provisional_evidence_codes'
-        managed = False
+        unique_together = (('VRS_Digest', 'method_name'),)
 
 
 class AnalysisPriors(models.Model):
@@ -428,9 +412,10 @@ class AnalysisPriors(models.Model):
     refRefAccSeq                  = models.TextField(null=True)
     altRefAccSeq                  = models.TextField(null=True)
 
+    VA_Spec                       = models.JSONField(null=True, blank=True)
+
     class Meta:
         db_table = 'analysis_priors'
-        managed = False
 
 
 class EnigmaDomain(models.Model):
@@ -444,4 +429,3 @@ class EnigmaDomain(models.Model):
 
     class Meta:
         db_table = 'enigma_domain'
-        managed = False

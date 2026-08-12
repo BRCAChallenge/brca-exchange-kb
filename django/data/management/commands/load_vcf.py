@@ -133,11 +133,6 @@ def populations_by_dataset(rec, dataset, exclude=frozenset()):
     return pops
 
 
-def ucsc_url(chrom, pos):
-    c = chrom if chrom.startswith('chr') else f'chr{chrom}'
-    return f'https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position={c}:{pos}-{pos}'
-
-
 _CHR_TO_NC = {
     '13': 'NC_000013.11', 'chr13': 'NC_000013.11',
     '17': 'NC_000017.11', 'chr17': 'NC_000017.11',
@@ -327,7 +322,7 @@ class Command(BaseCommand):
 
             self._upsert_coords(variant,
                 hgvs=genomic_hgvs(rec),
-                genome_browser_url=ucsc_url(rec.chrom, rec.pos),
+                end_pos=str(rec.pos + len(rec.ref) - 1),
                 chr=bare_chrom(rec.chrom), pos=str(rec.pos),
                 ref=rec.ref, alt=rec.alts[0] if rec.alts else '-',
             )
@@ -376,7 +371,7 @@ class Command(BaseCommand):
 
             self._upsert_coords(variant,
                 hgvs=genomic_hgvs(rec),
-                genome_browser_url=ucsc_url(rec.chrom, rec.pos),
+                end_pos=str(rec.pos + len(rec.ref) - 1),
                 chr=bare_chrom(rec.chrom), pos=str(rec.pos),
                 ref=rec.ref, alt=rec.alts[0] if rec.alts else '-',
             )
@@ -430,7 +425,7 @@ class Command(BaseCommand):
 
             self._upsert_coords(variant,
                 hgvs=genomic_hgvs(rec),
-                genome_browser_url=ucsc_url(rec.chrom, rec.pos),
+                end_pos=str(rec.pos + len(rec.ref) - 1),
                 chr=bare_chrom(rec.chrom), pos=str(rec.pos),
                 ref=rec.ref, alt=rec.alts[0] if rec.alts else '-',
             )
@@ -483,7 +478,7 @@ class Command(BaseCommand):
 
             self._upsert_coords(variant,
                 hgvs=genomic_hgvs(rec),
-                genome_browser_url=ucsc_url(rec.chrom, rec.pos),
+                end_pos=str(rec.pos + len(rec.ref) - 1),
                 chr=bare_chrom(rec.chrom), pos=str(rec.pos),
                 ref=rec.ref, alt=rec.alts[0] if rec.alts else '-',
             )
@@ -525,7 +520,7 @@ class Command(BaseCommand):
 
             self._upsert_coords(variant,
                 hgvs=genomic_hgvs(rec),
-                genome_browser_url=ucsc_url(rec.chrom, rec.pos),
+                end_pos=str(rec.pos + len(rec.ref) - 1),
                 chr=bare_chrom(rec.chrom), pos=str(rec.pos),
                 ref=rec.ref, alt=rec.alts[0] if rec.alts else '-',
             )
@@ -652,7 +647,7 @@ class Command(BaseCommand):
 
             self._upsert_coords(variant,
                 hgvs=genomic_hgvs(rec),
-                genome_browser_url=ucsc_url(rec.chrom, rec.pos),
+                end_pos=str(rec.pos + len(rec.ref) - 1),
                 chr=bare_chrom(rec.chrom), pos=str(rec.pos),
                 ref=rec.ref, alt=rec.alts[0] if rec.alts else '-',
             )

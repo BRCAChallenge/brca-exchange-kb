@@ -415,35 +415,6 @@ def _compute_evidence_code(hgvs_cdna, chr_, pos, ref, alt,
     return code, msg, used_dataset_idx
 
 
-_CREATE_TABLE = """
-CREATE TABLE IF NOT EXISTS analysis_provisional_evidence_codes (
-    "VRS_Digest"        text NOT NULL
-                             REFERENCES variant("VRS_Digest") ON DELETE CASCADE,
-    popfreq_code        text,
-    popfreq_description text,
-    method_name         text NOT NULL,
-    gnomad_version      text,
-    gnomad_data_type    text,
-    PRIMARY KEY ("VRS_Digest", method_name)
-)
-"""
-
-_ALTER_TABLE = """
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = current_schema()
-          AND table_name   = 'analysis_provisional_evidence_codes'
-          AND column_name  = 'gnomad_version'
-    ) THEN
-        ALTER TABLE analysis_provisional_evidence_codes
-            ADD COLUMN gnomad_version  text,
-            ADD COLUMN gnomad_data_type text;
-    END IF;
-END $$;
-"""
-
 _QUERY_ALL = """
 SELECT v."VRS_Digest", v."HGVS_cDNA",
        gc.chr, gc.pos, gc.ref, gc.alt,
@@ -540,12 +511,6 @@ def main(db_url, schema, coverage_v4_joint, coverage_v4_exome, coverage_v3_genom
 
     conn = psycopg2.connect(db_url, options=f'-c search_path={schema}')
     try:
-        if not dry_run:
-            with conn.cursor() as cur:
-                cur.execute(_CREATE_TABLE)
-                cur.execute(_ALTER_TABLE)
-            conn.commit()
-
         with conn.cursor() as cur:
             if vrs_digest:
                 cur.execute(_QUERY_ONE, (vrs_digest,))

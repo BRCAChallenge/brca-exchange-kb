@@ -71,5 +71,6 @@ VCF_ASSEMBLY_UTA_DB_URL := $(UTA_DB_URL)
 # schema name matches the work directory's own name (e.g. data_release_2026_07_24);
 # generate_release.py builds WORK_DIR with underscores rather than DATA_DATE's
 # hyphenated ISO form so this is a valid unquoted Postgres identifier as-is.
-VCF_ASSEMBLY_DB_SCHEMA := {{ DB_SCHEMA }}
+# generate_release.py creates this schema in Postgres before rendering this file.
+PIPELINE_DB_SCHEMA := {{ DB_SCHEMA }}
 VCF_ANALYSIS_GENOME_FA := $(RESOURCES_DIR)/hg38.fa

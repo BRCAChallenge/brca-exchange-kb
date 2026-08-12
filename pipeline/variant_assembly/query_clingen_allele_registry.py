@@ -107,12 +107,6 @@ def _synonyms(data):
     return '|'.join(terms) if terms else '-'
 
 
-def _ucsc_url(chrom, pos, assembly):
-    db = 'hg38' if assembly == 'GRCh38' else 'hg19'
-    c = chrom if str(chrom).startswith('chr') else f'chr{chrom}'
-    return f'https://genome.ucsc.edu/cgi-bin/hgTracks?db={db}&position={c}:{pos}-{pos}'
-
-
 def _grch37_coords(data, vrs_digest):
     """Return a list of genomic_coordinates rows for GRCh37 genomicAlleles.
 
@@ -130,13 +124,14 @@ def _grch37_coords(data, vrs_digest):
         alt   = coords.get('allele', '-')
         hgvs_list = ga.get('hgvs', [])
         hgvs  = next((h for h in hgvs_list if h.startswith('NC_')), hgvs_list[0] if hgvs_list else '-')
+        end_pos = str(int(pos) + len(ref) - 1) if pos != '-' and ref != '-' else '-'
         rows.append({
             'VRS_Digest_id': vrs_digest,
             'assembly':      'GRCh37',
             'hgvs':          hgvs,
-            'genome_browser_url': _ucsc_url(chrom, pos, 'GRCh37'),
             'chr':  chrom,
             'pos':  pos,
+            'end_pos': end_pos,
             'ref':  ref,
             'alt':  alt,
         })
@@ -266,11 +261,11 @@ def main(db_url, schema, overwrite):
                 psycopg2.extras.execute_values(
                     cur,
                     """INSERT INTO genomic_coordinates
-                           ("VRS_Digest_id", assembly, hgvs, genome_browser_url, chr, pos, ref, alt)
+                           ("VRS_Digest_id", assembly, hgvs, chr, pos, end_pos, ref, alt)
                        VALUES %s
                        ON CONFLICT ("VRS_Digest_id", assembly) DO NOTHING""",
                     [(r['VRS_Digest_id'], r['assembly'], r['hgvs'],
-                      r['genome_browser_url'], r['chr'], r['pos'], r['ref'], r['alt'])
+                      r['chr'], r['pos'], r['end_pos'], r['ref'], r['alt'])
                      for r in batch],
                 )
 

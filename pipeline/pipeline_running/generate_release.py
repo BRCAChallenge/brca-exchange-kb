@@ -26,6 +26,19 @@ except ImportError:
     print("Error: jinja2 is required. Install with: pip install jinja2", file=sys.stderr)
     sys.exit(1)
 
+try:
+    import psycopg2
+    from psycopg2 import sql
+except ImportError:
+    print("Error: psycopg2 is required. Install with: pip install psycopg2", file=sys.stderr)
+    sys.exit(1)
+
+
+# Same default/override convention as the rest of the pipeline's DB-touching
+# scripts (e.g. variant_analysis/run_vep_analysis.py) -- a single Postgres
+# instance holding every release's tables, disambiguated by schema.
+DEFAULT_PIPELINE_DB_URL = "postgresql://postgres:postgres@localhost/storage.pg"
+
 
 def resolve_path(path: str) -> Path:
     """Resolve a path to its absolute form."""
@@ -61,7 +74,8 @@ def run_command(
     cmd: list[str],
     cwd: Optional[Path] = None,
     check: bool = True,
-    capture_output: bool = False
+    capture_output: bool = False,
+    env: Optional[dict[str, str]] = None,
 ) -> subprocess.CompletedProcess:
     """
     Run a shell command with proper error handling.
@@ -71,6 +85,8 @@ def run_command(
         cwd: Working directory for the command
         check: Whether to raise exception on non-zero exit
         capture_output: Whether to capture stdout/stderr
+        env: Environment for the subprocess (default: inherit this
+            process's environment)
 
     Returns:
         CompletedProcess instance
@@ -81,7 +97,8 @@ def run_command(
         cwd=cwd,
         check=check,
         capture_output=capture_output,
-        text=True
+        text=True,
+        env=env,
     )
 
 
@@ -158,6 +175,58 @@ def generate_config(
     print(f"Configuration written to {output_path}")
 
 
+def create_schema_namespace(db_url: str, schema_name: str) -> None:
+    """
+    Create this release's (empty) PostgreSQL schema namespace. Table
+    structure is added later, by apply_migrations() -- Django's `data` app
+    models are the source of truth for that DDL.
+
+    Idempotent: CREATE SCHEMA IF NOT EXISTS, safe to rerun against a work
+    directory whose schema already exists (e.g. a reused work directory).
+
+    Args:
+        db_url: Postgres connection string.
+        schema_name: Name of the schema to create for this release.
+    """
+    print(f"Creating PostgreSQL schema '{schema_name}'...")
+
+    conn = psycopg2.connect(db_url)
+    try:
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute(
+                sql.SQL("CREATE SCHEMA IF NOT EXISTS {}")
+                .format(sql.Identifier(schema_name))
+            )
+    finally:
+        conn.close()
+
+    print(f"Schema '{schema_name}' created.")
+
+
+def apply_migrations(code_base: Path, schema_name: str) -> None:
+    """
+    Run the `data` app's Django migrations against this release's schema,
+    via the 'pipeline' DB alias (django/brca/site_settings.py points its
+    search_path at $PIPELINE_SCHEMA). This is what actually creates the
+    tables -- on a brand-new schema this issues real DDL matching current
+    models.py exactly; naturally idempotent if rerun against a work
+    directory that's already been migrated.
+
+    Args:
+        code_base: Path to the code repository (must already be checked
+            out -- this shells out to its django/manage.py).
+        schema_name: Name of the schema to migrate.
+    """
+    print(f"Running migrations against schema '{schema_name}'...")
+    django_dir = code_base / "django"
+    run_command(
+        [sys.executable, "manage.py", "migrate", "--database=pipeline", "data"],
+        cwd=django_dir,
+        env={**os.environ, "PIPELINE_SCHEMA": schema_name},
+    )
+
+
 def spawn_pipeline(code_base: Path, work_dir: Path) -> Path:
     """
     Launch the pipeline build-release target in the background and return
@@ -212,13 +281,8 @@ def spawn_pipeline(code_base: Path, work_dir: Path) -> Path:
     return pipeline_log
 
 
-def main() -> int:
-    """Main entry point."""
-    # The branch to build always comes from the checkout this script is
-    # itself running from -- no CLI override, so there's no way to
-    # accidentally deploy a different branch than the one you're standing in.
-    git_commit = get_current_branch(Path(__file__).resolve().parent)
-
+def build_arg_parser(git_commit: str) -> argparse.ArgumentParser:
+    """Build the CLI parser. `git_commit` is only used for the help text."""
     parser = argparse.ArgumentParser(
         description="Generate a new BRCA Exchange data release",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -254,6 +318,15 @@ Example usage:
     )
 
     parser.add_argument(
+        "--db-url",
+        dest="db_url",
+        type=str,
+        default=os.environ.get("PIPELINE_DB_URL", DEFAULT_PIPELINE_DB_URL),
+        help="Postgres connection string the release's PIPELINE_DB_SCHEMA is created in "
+             "(default: $PIPELINE_DB_URL, falling back to %(default)r)"
+    )
+
+    parser.add_argument(
         "gene_config_filename",
         type=str,
         nargs='?',
@@ -261,7 +334,75 @@ Example usage:
         help="Gene configuration filename (default: gene_config_brca_only.txt)"
     )
 
-    args = parser.parse_args()
+    return parser
+
+
+def print_run_summary(
+    data_date: str,
+    work_dir: Path,
+    gene_config_filename: str,
+    git_commit: str,
+    previous_release_dir: Optional[Path],
+) -> None:
+    print(f"=== BRCA Exchange Release Generator ===")
+    print(f"Data Date: {data_date}")
+    print(f"Working Directory: {work_dir}")
+    print(f"PIPELINE_DB_SCHEMA: {work_dir.name}")
+    print(f"Gene Configuration: {gene_config_filename}")
+    print(f"Git Commit: {git_commit}")
+    print(f"Previous Release Dir: {previous_release_dir or '(none -- defaulting to working directory)'}")
+    print("=" * 40)
+
+
+def build_template_context(
+    data_date: str,
+    work_dir: Path,
+    code_base: Path,
+    credentials_path: Path,
+    git_commit: str,
+    gene_config_filename: str,
+    db_schema: str,
+    previous_release_dir: Optional[Path],
+) -> dict[str, str]:
+    """Build the Jinja2 context for rendering brca_pipeline_cfg.mk.j2."""
+    context = {
+        "DATA_DATE": data_date,
+        "WORK_DIR": str(work_dir),
+        "CODE_BASE": str(code_base),
+        "CREDENTIALS_PATH": str(credentials_path),
+        "GIT_COMMIT": git_commit,
+        "GENE_CONFIG_FILENAME": gene_config_filename,
+        "DB_SCHEMA": db_schema,
+    }
+    if previous_release_dir is not None:
+        context["PREVIOUS_RELEASE_DIR"] = str(previous_release_dir)
+    return context
+
+
+def print_config_ready(config_path: Path, pipeline_dir: Path) -> None:
+    print("\n" + "=" * 40)
+    print("Configuration generated successfully!")
+    print("\nYou can issue pipeline commands using:")
+    print(f"  make CONFIG_PATH={config_path} [cmd]")
+    print("-- or --")
+    print(f"  cd {pipeline_dir} && make [cmd]")
+    print("=" * 40)
+
+
+def print_pipeline_launched(pipeline_log: Path) -> None:
+    print("\n" + "=" * 40)
+    print("Pipeline launched in the background (not waiting for it to finish).")
+    print(f"Follow its progress with:\n  tail -f {pipeline_log}")
+    print("=" * 40)
+
+
+def main() -> int:
+    """Main entry point."""
+    # The branch to build always comes from the checkout this script is
+    # itself running from -- no CLI override, so there's no way to
+    # accidentally deploy a different branch than the one you're standing in.
+    git_commit = get_current_branch(Path(__file__).resolve().parent)
+    args = build_arg_parser(git_commit).parse_args()
 
     # Resolve all paths to absolute
     root_dir = resolve_path(args.root_dir)
@@ -270,54 +411,46 @@ Example usage:
 
     # Generate data date and working directory. The working directory name
     # doubles as the pipeline's PostgreSQL schema name (see
-    # brca_pipeline_cfg.mk.j2's VCF_ASSEMBLY_DB_SCHEMA), so it's built from an
+    # brca_pipeline_cfg.mk.j2's PIPELINE_DB_SCHEMA), so it's built from an
     # underscore-separated date rather than DATA_DATE's hyphenated ISO form --
     # unquoted Postgres identifiers can't contain hyphens.
     data_date = datetime.now().strftime("%Y-%m-%d")
     work_dir = root_dir / f"data_release_{data_date.replace('-', '_')}"
+    db_schema = work_dir.name
 
-    print(f"=== BRCA Exchange Release Generator ===")
-    print(f"Data Date: {data_date}")
-    print(f"Working Directory: {work_dir}")
-    print(f"Gene Configuration: {args.gene_config_filename}")
-    print(f"Git Commit: {git_commit}")
-    print(f"Previous Release Dir: {previous_release_dir or '(none -- defaulting to working directory)'}")
-    print("=" * 40)
+    print_run_summary(data_date, work_dir, args.gene_config_filename, git_commit, previous_release_dir)
 
     # Create working directory
     work_dir.mkdir(parents=True, exist_ok=True)
     print(f"Created working directory: {work_dir}")
 
+    # Create this release's (empty) PostgreSQL schema namespace (named
+    # after the work directory, same as brca_pipeline_cfg.mk.j2's own
+    # DB_SCHEMA default) before doing anything else, so a bad --db-url
+    # fails fast.
+    try:
+        create_schema_namespace(args.db_url, db_schema)
+    except psycopg2.Error as e:
+        print(f"\nError: could not create schema '{db_schema}': {e}", file=sys.stderr)
+        return 1
+
     # Set up code base
     code_base = work_dir / "code"
     clone_or_update_repo(code_base, git_commit)
 
-    # Prepare template context
-    template_path = code_base / "pipeline" / "pipeline_running" / "brca_pipeline_cfg.mk.j2"
-    config_path = code_base / "pipeline" / "brca_pipeline_cfg.mk"
-
-    context = {
-        "DATA_DATE": data_date,
-        "WORK_DIR": str(work_dir),
-        "CODE_BASE": str(code_base),
-        "CREDENTIALS_PATH": str(credentials_path),
-        "GIT_COMMIT": git_commit,
-        "GENE_CONFIG_FILENAME": args.gene_config_filename,
-    }
-    if previous_release_dir is not None:
-        context["PREVIOUS_RELEASE_DIR"] = str(previous_release_dir)
+    # Populate the schema via Django's `data` app migrations, now that
+    # code_base/django/manage.py exists to run them with.
+    apply_migrations(code_base, db_schema)
 
     # Generate configuration
+    template_path = code_base / "pipeline" / "pipeline_running" / "brca_pipeline_cfg.mk.j2"
+    config_path = code_base / "pipeline" / "brca_pipeline_cfg.mk"
+    context = build_template_context(
+        data_date, work_dir, code_base, credentials_path, git_commit,
+        args.gene_config_filename, db_schema, previous_release_dir,
+    )
     generate_config(template_path, config_path, context)
-
-    # Print usage information
-    print("\n" + "=" * 40)
-    print("Configuration generated successfully!")
-    print("\nYou can issue pipeline commands using:")
-    print(f"  make CONFIG_PATH={config_path} [cmd]")
-    print("-- or --")
-    print(f"  cd {code_base / 'pipeline'} && make [cmd]")
-    print("=" * 40)
+    print_config_ready(config_path, code_base / "pipeline")
 
     # Launch the pipeline in the background. build-release (particularly the
     # actual Luigi run within it) can take hours, so we don't wait for it --
@@ -328,10 +461,7 @@ Example usage:
         print(f"\nError: could not launch the pipeline: {e}", file=sys.stderr)
         return 1
 
-    print("\n" + "=" * 40)
-    print("Pipeline launched in the background (not waiting for it to finish).")
-    print(f"Follow its progress with:\n  tail -f {pipeline_log}")
-    print("=" * 40)
+    print_pipeline_launched(pipeline_log)
     return 0
 
 
