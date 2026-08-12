@@ -490,13 +490,20 @@ def _write_rows_to_db(conn, schema, processed_rows):
 
             hg37_hgvs = row.get(GENOMIC_HGVS_HG37_COL) or row.get(PYHGVS_GENOMIC_COORDINATE_37_COL)
             if hg37_hgvs and str(hg37_hgvs).strip() not in ('', 'None', '-'):
+                # chr/ref/alt carry over unchanged from the GRCh38 row (same
+                # chromosome, same alleles) — only the position moves between
+                # builds, which is why hg37 start/end are computed separately.
                 cur.execute(f"""
                     INSERT INTO {schema}.variant_genomic_coordinates
-                        ("VRS_Digest_id", assembly, hgvs)
-                    VALUES (%s, 'GRCh37', %s)
+                        ("VRS_Digest_id", assembly, hgvs, chr, pos, end_pos, ref, alt)
+                    VALUES (%s, 'GRCh37', %s, %s, %s, %s, %s, %s)
                     ON CONFLICT ("VRS_Digest_id", assembly) DO UPDATE
                         SET hgvs = EXCLUDED.hgvs
-                """, [digest, hg37_hgvs])
+                """, [
+                    digest, hg37_hgvs,
+                    row.get(CHR_COL), row.get(PYHGVS_HG37_START_COL),
+                    row.get(PYHGVS_HG37_END_COL), row.get(REF_COL), row.get(ALT_COL),
+                ])
                 if cur.rowcount:
                     upserted_gc += 1
 
