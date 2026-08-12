@@ -27,7 +27,7 @@ PYTHONPATH_PIPELINE := $(abspath $(PYTHONPATH_PIPELINE))
 VCF_ASSEMBLY_OUT_DIR ?= ../../data_out
 VCF_ASSEMBLY_SEQ_REPO_DIR ?= /data/seqrepo/latest
 VCF_ASSEMBLY_SEQ_REPO_ROOT ?= $(patsubst %/,%,$(dir $(VCF_ASSEMBLY_SEQ_REPO_DIR)))
-VCF_ASSEMBLY_GENE_CONFIG ?= $(PYTHONPATH_PIPELINE)/workflow/gene_config_brca_only.txt
+GENE_CONFIG_PIPELINE ?= $(PYTHONPATH_PIPELINE)/workflow/gene_config_brca_only.txt
 VCF_ASSEMBLY_UTA_DB_URL ?= postgresql://anonymous@localhost:50828/uta/uta_20241220
 # PostgreSQL schema for pipeline tables; matches PipelineParams.db_schema's
 # own default ('pipeline') unless overridden -- e.g. by brca_pipeline_cfg.mk,
@@ -72,7 +72,7 @@ LOCAL_PIPELINE_ENV = \
 	PYTHONPATH=$(PYTHONPATH_PIPELINE)
 
 PIPELINE_ARGS := \
-	--PipelineParams-gene-config-path $(VCF_ASSEMBLY_GENE_CONFIG) \
+	--PipelineParams-gene-config-path $(GENE_CONFIG_PIPELINE) \
 	--PipelineParams-seq-repo-dir $(VCF_ASSEMBLY_SEQ_REPO_DIR) \
 	--PipelineParams-file-parent-dir $(VCF_ASSEMBLY_OUT_DIR) \
 	--PipelineParams-output-dir $(VCF_ASSEMBLY_OUT_DIR) \
