@@ -161,9 +161,12 @@ def main():
     # a private scratch directory so a concurrent invocation of this script
     # (the Luigi pipeline runs --source joint and --source exome as
     # independent, parallel tasks sharing the same cwd) can't read, write,
-    # or delete the same files out from under this one.
+    # or delete the same files out from under this one. Placed alongside
+    # the output file rather than the system default (often a small root
+    # partition) -- a full pre-subsetting chromosome VCF from gnomAD can be
+    # many GB, and the pipeline's own output tree is sized for that.
     orig_cwd = os.getcwd()
-    with tempfile.TemporaryDirectory() as scratch_dir:
+    with tempfile.TemporaryDirectory(dir=os.path.dirname(output_path)) as scratch_dir:
         os.chdir(scratch_dir)
         try:
             tmp = tempfile.NamedTemporaryFile()
