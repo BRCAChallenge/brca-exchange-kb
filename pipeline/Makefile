@@ -51,13 +51,13 @@ LUIGI_ROOT_TASK = $(VCF_ANALYSIS_ROOT_TASK)
 LUIGI_WORKERS = 8
 LUIGI_LOG_LEVEL ?= WARNING
 
-# run-pipeline's log destination -- a timestamped file under a tmp dir beneath
-# this release's root (LOG_DIR defaults to WORK_DIR; see brca_pipeline_cfg.mk.j2).
+# run-pipeline's log destination -- a timestamped file directly under this
+# release's root (LOG_DIR defaults to WORK_DIR; see brca_pipeline_cfg.mk.j2).
 # Override PIPELINE_LOG explicitly (e.g. from generate_release.py) to agree on
 # the exact path up front rather than parsing it back out of `make` output --
 # its directory is created from wherever it actually points, so overriding
 # just this one variable is always enough.
-PIPELINE_LOG ?= $(LOG_DIR)/tmp/luigi_run_$(shell date +%Y%m%d_%H%M%S).log
+PIPELINE_LOG ?= $(LOG_DIR)/pipeline_$(shell date +%Y%m%d_%H%M%S).log
 
 # build-release's own log destination -- covers everything in the chain
 # (checkout, downloads, docker service startup, ...) except run-pipeline's

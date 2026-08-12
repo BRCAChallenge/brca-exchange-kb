@@ -244,8 +244,9 @@ def spawn_pipeline(code_base: Path, work_dir: Path) -> Path:
 
     Args:
         code_base: Path to the code repository
-        work_dir: This release's working directory (logs live under a tmp/
-            subdirectory of it)
+        work_dir: This release's working directory. PIPELINE_LOG lives
+            directly under it; BUILD_RELEASE_LOG lives under its tmp/
+            subdirectory.
 
     Returns:
         Path to the log file the running Luigi pipeline is writing to.
@@ -255,7 +256,7 @@ def spawn_pipeline(code_base: Path, work_dir: Path) -> Path:
     log_dir = work_dir / "tmp"
     log_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    pipeline_log = log_dir / f"luigi_run_{timestamp}.log"
+    pipeline_log = work_dir / f"pipeline_{timestamp}.log"
     build_release_log = log_dir / f"build_release_{timestamp}.log"
 
     print(f"\nKicking off pipeline! (spawned in the background, not waiting)")

@@ -37,7 +37,7 @@ for file in "${!files[@]}"; do
     hash=$(${HASH} $file | cut -f1 -d' ')
     if [ "$hash" != "${files[$file]}" ]; then
         echo "Downloading ${file}..."
-        wget ${URL_PREFIX}/${file} -O ${file}
+        wget --progress=dot:giga ${URL_PREFIX}/${file} -O ${file}
     fi
     hash=$(${HASH} $file | cut -f1 -d' ')
     if [ "$hash" != "${files[$file]}" ]; then
