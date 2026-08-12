@@ -93,11 +93,6 @@ def population_breakdown(row, dataset, source_suffix, pops):
     }
 
 
-def ucsc(chrom, pos):
-    c = chrom if chrom.startswith('chr') else f'chr{chrom}'
-    return f'https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position={c}:{pos}-{pos}'
-
-
 def flush():
     print('Flushing test_pipeline tables ...')
     with connections[DB].cursor() as cur:
@@ -126,11 +121,11 @@ def load_variant_row(row, digest, counts):
     with connections[DB].cursor() as cur:
         cur.execute(
             '''INSERT INTO variant_genomic_coordinates
-                   ("VRS_Digest_id", assembly, hgvs, genome_browser_url, chr, pos, ref, alt)
+                   ("VRS_Digest_id", assembly, hgvs, chr, pos, end_pos, ref, alt)
                VALUES (%s,'GRCh38',%s,%s,%s,%s,%s,%s)''',
             [digest, f(row, 'Genomic_HGVS_38'),
-             ucsc(row['Chr'], row['Pos']),
-             row['Chr'], row['Pos'], row['Ref'], row['Alt']],
+             row['Chr'], row['Pos'], str(int(row['Pos']) + len(row['Ref']) - 1),
+             row['Ref'], row['Alt']],
         )
     counts['variant_genomic_coordinates'] += 1
 
