@@ -556,25 +556,47 @@ class VRSAnnotateGnomAD(VCFAssemblyTask):
         )
 
 
-class DownloadGnomADCoverage(VCFAssemblyTask):
-    """Download gnomAD genome + exome coverage and write a combined weighted-mean parquet.
+class DownloadGnomADCoverage(GnomADTask):
+    """Provide the gnomAD coverage parquets used for popfreq evidence-code coverage checks:
+    the combined v4.1 joint (exome+genome) weighted-mean parquet, plus the per-source V4
+    exome and V3 genome gene-region parquets.
 
-    Also writes per-source parquets for the V4 exome and V3 genome coverage.
-    Disabled by default; pass --DownloadGnomADCoverage-enabled true to run.
+    Default: download the pre-built parquets from brcaexchange.org -- the same files
+    download_resources_files.sh stages into the resources directory, so this is normally
+    a fast no-op (the Luigi targets are already satisfied by the time this task runs).
+    Pass --DownloadGnomADCoverage-compute-new true to instead recompute them from raw
+    gnomAD coverage data via download_coverage_v4.py (slow -- downloads and reprocesses
+    full genome/exome coverage summaries), e.g. to refresh against a newer gnomAD release.
+    When computed, the estimation script writes into this release's own gnomAD working
+    directory first; on success the three parquets are copied into the resources directory
+    (coverage_output/exome_coverage_output/genome_coverage_output -- the paths
+    CoverageParquet/CoverageParquetV4Exome/CoverageParquetV3Genome in variant_analysis.py
+    read from), so later releases can reuse them without recomputing.
     """
-    enabled = luigi.BoolParameter(default=False)
+    compute_new = luigi.BoolParameter(
+        default=False,
+        description='Recompute coverage from raw gnomAD data instead of downloading the pre-built parquet')
     gene_config = luigi.Parameter(
         default=os.path.join(_pipeline_dir, 'workflow', 'gene_config_brca_only.txt'),
         description='Gene config file with chr/start_hg38/end_hg38 columns')
     coverage_output = luigi.Parameter(
-        default=os.path.join(_pipeline_dir, '..', '..', 'resources', 'gnomADv4.1.coverage.joint.parquet'),
-        description='Output path for the combined weighted-mean coverage parquet')
+        default=os.path.join(_RESOURCES_DIR, 'gnomADv4.1.coverage.joint.parquet'),
+        description='Destination path (in the resources directory) for the combined weighted-mean coverage parquet')
     exome_coverage_output = luigi.Parameter(
-        default=os.path.join(_pipeline_dir, '..', '..', 'resources', 'gnomADv4.1.coverage.exome.parquet'),
-        description='Output path for the V4 exome gene-region coverage parquet')
+        default=os.path.join(_RESOURCES_DIR, 'gnomADv4.1.coverage.exome.parquet'),
+        description='Destination path (in the resources directory) for the V4 exome gene-region coverage parquet')
     genome_coverage_output = luigi.Parameter(
-        default=os.path.join(_pipeline_dir, '..', '..', 'resources', 'gnomADv3.1.coverage.genome.parquet'),
-        description='Output path for the V3 genome gene-region coverage parquet')
+        default=os.path.join(_RESOURCES_DIR, 'gnomADv3.1.coverage.genome.parquet'),
+        description='Destination path (in the resources directory) for the V3 genome gene-region coverage parquet')
+    coverage_joint_url = luigi.Parameter(
+        default='https://brcaexchange.org/backend/downloads/resources/gnomADv4.1.coverage.joint.parquet',
+        description='URL to download the pre-built combined weighted-mean coverage parquet from')
+    coverage_exome_url = luigi.Parameter(
+        default='https://brcaexchange.org/backend/downloads/resources/gnomADv4.1.coverage.exome.parquet',
+        description='URL to download the pre-built V4 exome gene-region coverage parquet from')
+    coverage_genome_url = luigi.Parameter(
+        default='https://brcaexchange.org/backend/downloads/resources/gnomADv3.1.coverage.genome.parquet',
+        description='URL to download the pre-built V3 genome gene-region coverage parquet from')
 
     def output(self):
         return {
@@ -584,18 +606,44 @@ class DownloadGnomADCoverage(VCFAssemblyTask):
         }
 
     def run(self):
-        if not self.enabled:
-            return
+        if self.compute_new:
+            self._compute_new()
+        else:
+            self._download_prebuilt()
+
+    def _download_prebuilt(self):
+        for url, resource_path in (
+            (self.coverage_joint_url,  self.coverage_output),
+            (self.coverage_exome_url,  self.exome_coverage_output),
+            (self.coverage_genome_url, self.genome_coverage_output),
+        ):
+            resource_path = os.path.normpath(resource_path)
+            os.makedirs(os.path.dirname(resource_path), exist_ok=True)
+            self._download_file(url, resource_path)
+
+    def _compute_new(self):
+        joint_scratch  = os.path.join(self.gnomad_file_dir, os.path.basename(self.coverage_output))
+        exome_scratch  = os.path.join(self.gnomad_file_dir, os.path.basename(self.exome_coverage_output))
+        genome_scratch = os.path.join(self.gnomad_file_dir, os.path.basename(self.genome_coverage_output))
         script = os.path.join(_pipeline_dir, 'gnomad', 'download_coverage_v4.py')
         args = [
             'python', script,
             '-g', self.gene_config,
-            '-c', os.path.normpath(self.coverage_output),
-            '--exome-coverage-output', os.path.normpath(self.exome_coverage_output),
-            '--genome-coverage-output', os.path.normpath(self.genome_coverage_output),
+            '-c', joint_scratch,
+            '--exome-coverage-output', exome_scratch,
+            '--genome-coverage-output', genome_scratch,
             '-v',
         ]
         self._run_process_with_pipeline_path(args)
+
+        for scratch_path, resource_path in (
+            (joint_scratch,  self.coverage_output),
+            (exome_scratch,  self.exome_coverage_output),
+            (genome_scratch, self.genome_coverage_output),
+        ):
+            resource_path = os.path.normpath(resource_path)
+            os.makedirs(os.path.dirname(resource_path), exist_ok=True)
+            shutil.copy(scratch_path, resource_path)
 
 
 @requires(DownloadGnomADCoverage)

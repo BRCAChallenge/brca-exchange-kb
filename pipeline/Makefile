@@ -47,6 +47,14 @@ ifneq ($(strip $(VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF)),)
 VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF_FLAG = --previous-spliceai-vcf $(VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF)
 endif
 
+# Whether workflow.variant_assembly.DownloadGnomADCoverage should recompute the gnomAD
+# coverage parquets from raw gnomAD coverage data instead of downloading the pre-built
+# parquets from brcaexchange.org (the default -- fast, and normally a no-op since
+# download-resources already staged the same files into RESOURCES_DIR). Override from
+# generate_release.py (--run-gnomad-coverage-estimation) or directly as
+# DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW=true.
+DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW ?= false
+
 LUIGI_ROOT_TASK = $(VCF_ANALYSIS_ROOT_TASK)
 LUIGI_WORKERS = 8
 LUIGI_LOG_LEVEL ?= WARNING
@@ -77,6 +85,7 @@ PIPELINE_ARGS := \
 	--PipelineParams-file-parent-dir $(VCF_ASSEMBLY_OUT_DIR) \
 	--PipelineParams-output-dir $(VCF_ASSEMBLY_OUT_DIR) \
 	--PipelineParams-db-schema $(PIPELINE_DB_SCHEMA) \
+	--DownloadGnomADCoverage-compute-new $(DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW) \
 	--workers $(LUIGI_WORKERS)
 
 RUN_TASK_CMD = $(LOCAL_PIPELINE_ENV) python -m luigi --module $(VCF_ANALYSIS_MODULE)
