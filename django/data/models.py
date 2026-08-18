@@ -76,7 +76,7 @@ class Variant(models.Model):
 
 
 class Genomic_Coordinates(models.Model):
-    VRS_Digest = models.ForeignKey(Variant, on_delete=models.CASCADE, related_name='genomic_coordinates')
+    VRS_Digest = models.ForeignKey(Variant, on_delete=models.CASCADE, related_name='genomic_coordinates', db_column='VRS_Digest')
     assembly = models.TextField()
     hgvs = models.TextField()
     chr = models.TextField()
@@ -96,7 +96,7 @@ class Genomic_Coordinates(models.Model):
 
 class Variant_in_ClinVar(models.Model):
     """ClinVar data for a variant."""
-    VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='clinvar_data')
+    VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='clinvar_data', db_column='VRS_Digest')
 
     Source_URL = models.TextField()
 
@@ -106,7 +106,7 @@ class Variant_in_ClinVar(models.Model):
 
 class Variant_in_LOVD(models.Model):
     """LOVD (Leiden Open Variation Database) data for a variant."""
-    VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='lovd_data')
+    VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='lovd_data', db_column='VRS_Digest')
 
     Source_URL = models.TextField()
     Variant_haplotype = models.TextField()
@@ -117,7 +117,7 @@ class Variant_in_LOVD(models.Model):
 
 class Variant_in_ExLOVD(models.Model):
     """exLOVD expert-curated BRCA1/2 data for a variant."""
-    VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='exlovd_data')
+    VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='exlovd_data', db_column='VRS_Digest')
 
     Source_URL = models.TextField(null=True)
     Exon = models.TextField(null=True)
@@ -143,7 +143,7 @@ class Variant_in_ExLOVD(models.Model):
 
 class Variant_in_GnomAD(models.Model):
     """Per-variant gnomAD anchor row (one per variant across all versions)."""
-    VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='gnomad_data')
+    VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='gnomad_data', db_column='VRS_Digest')
 
     Source_URL = models.TextField(default='-', null=True)
 
@@ -153,7 +153,7 @@ class Variant_in_GnomAD(models.Model):
 
 class Report_in_GnomAD(models.Model):
     """GnomAD frequency data — one row per variant per version and data type."""
-    VRS_Digest = models.ForeignKey(Variant_in_GnomAD, on_delete=models.CASCADE, related_name='gnomad_reports')
+    VRS_Digest = models.ForeignKey(Variant_in_GnomAD, on_delete=models.CASCADE, related_name='gnomad_reports', db_column='VRS_Digest')
 
     version = models.TextField(null=True)
     data_type = models.TextField(default='-')    # 'joint', 'genome', or 'exome'
@@ -174,7 +174,7 @@ class Report_in_GnomAD(models.Model):
 
 class Variant_in_Other(models.Model):
     """Data from other sources (functional assays, multifactorial, etc.)."""
-    VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='other_data')
+    VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='other_data', db_column='VRS_Digest')
 
     data_type = models.TextField(null=True)
     variant_data = models.JSONField(null=True, blank=True)
@@ -186,7 +186,7 @@ class Variant_in_Other(models.Model):
 
 class Variant_in_ENIGMA(models.Model):
     """ENIGMA-specific report data."""
-    VRS_Digest = models.ForeignKey(Variant, on_delete=models.CASCADE, related_name='enigma_reports')
+    VRS_Digest = models.ForeignKey(Variant, on_delete=models.CASCADE, related_name='enigma_reports', db_column='VRS_Digest')
     Condition_ID_type = models.TextField()
     Condition_ID_value = models.TextField()
     Condition_category = models.TextField()
@@ -207,7 +207,7 @@ class Variant_in_ENIGMA(models.Model):
 
 class Report_in_ClinVar(models.Model):
     """ClinVar-specific report data."""
-    VRS_Digest = models.ForeignKey(Variant_in_ClinVar, on_delete=models.CASCADE, related_name='clinvar_reports')
+    VRS_Digest = models.ForeignKey(Variant_in_ClinVar, on_delete=models.CASCADE, related_name='clinvar_reports', db_column='VRS_Digest')
 
     Clinical_Significance = models.TextField()
     Date_Last_Updated = models.TextField()
@@ -230,7 +230,7 @@ class Report_in_ClinVar(models.Model):
 
 class Report_in_LOVD(models.Model):
     """LOVD-specific report data."""
-    VRS_Digest = models.ForeignKey(Variant_in_LOVD, on_delete=models.CASCADE, related_name='lovd_reports')
+    VRS_Digest = models.ForeignKey(Variant_in_LOVD, on_delete=models.CASCADE, related_name='lovd_reports', db_column='VRS_Digest')
 
     Variant_frequency = models.TextField()
     Individuals = models.TextField()
@@ -267,7 +267,7 @@ class Paper(models.Model):
 
 
 class Variant_in_Paper(models.Model):
-    VRS_Digest = models.ForeignKey(Variant, on_delete=models.CASCADE)
+    VRS_Digest = models.ForeignKey(Variant, on_delete=models.CASCADE, db_column='VRS_Digest')
     Paper = models.ForeignKey(Paper, on_delete=models.CASCADE)
     mentions = ArrayField(models.TextField())
     variant_mentioned_as = ArrayField(models.TextField())
@@ -281,7 +281,7 @@ class Variant_in_Paper(models.Model):
 class AnalysisVEP(models.Model):
     """VEP annotation results for a variant."""
     VRS_Digest    = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE,
-                                         related_name='vep_analysis')
+                                         related_name='vep_analysis', db_column='VRS_Digest')
     variant_class = models.TextField(null=True)
     variant_type  = models.TextField(null=True)
     VA_Spec       = models.JSONField(null=True, blank=True)
@@ -293,7 +293,7 @@ class AnalysisVEP(models.Model):
 class AnalysisBayesDel(models.Model):
     """BayesDel scores for a variant."""
     VRS_Digest               = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE,
-                                                     related_name='bayesdel_analysis')
+                                                     related_name='bayesdel_analysis', db_column='VRS_Digest')
     BayesDel_nsfp33a_noAF   = models.TextField(null=True)
     VA_Spec                 = models.JSONField(null=True, blank=True)
 
@@ -304,7 +304,7 @@ class AnalysisBayesDel(models.Model):
 class AnalysisSpliceAI(models.Model):
     """SpliceAI scores for a variant."""
     VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE,
-                                      related_name='spliceai_analysis')
+                                      related_name='spliceai_analysis', db_column='VRS_Digest')
     DS_AG  = models.TextField(null=True)
     DS_AL  = models.TextField(null=True)
     DS_DG  = models.TextField(null=True)
@@ -324,7 +324,7 @@ class AnalysisProvisionalEvidenceCodes(models.Model):
     """Provisional evidence codes for a variant. Multiple rows per variant,
     one per method_name."""
     VRS_Digest          = models.ForeignKey(Variant, on_delete=models.CASCADE,
-                                             related_name='provisional_evidence_codes')
+                                             related_name='provisional_evidence_codes', db_column='VRS_Digest')
     popfreq_code        = models.TextField(null=True)
     popfreq_description = models.TextField(null=True)
     method_name         = models.TextField()
@@ -340,7 +340,7 @@ class AnalysisProvisionalEvidenceCodes(models.Model):
 class AnalysisPriors(models.Model):
     """In silico prior probability fields shown in the UI."""
     VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE,
-                                      related_name='priors_analysis')
+                                      related_name='priors_analysis', db_column='VRS_Digest')
 
     varLoc                        = models.TextField(null=True)
     applicablePrior               = models.TextField(null=True)

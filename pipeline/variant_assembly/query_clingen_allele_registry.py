@@ -126,7 +126,7 @@ def _grch37_coords(data, vrs_digest):
         hgvs  = next((h for h in hgvs_list if h.startswith('NC_')), hgvs_list[0] if hgvs_list else '-')
         end_pos = str(int(pos) + len(ref) - 1) if pos != '-' and ref != '-' else '-'
         rows.append({
-            'VRS_Digest_id': vrs_digest,
+            'VRS_Digest': vrs_digest,
             'assembly':      'GRCh37',
             'hgvs':          hgvs,
             'chr':  chrom,
@@ -172,16 +172,16 @@ def main(db_url, schema, overwrite):
         with conn.cursor() as cur:
             if overwrite:
                 cur.execute("""
-                    SELECT gc."VRS_Digest_id", gc.hgvs
+                    SELECT gc."VRS_Digest", gc.hgvs
                     FROM variant_genomic_coordinates gc
                     WHERE gc.assembly = 'GRCh38'
                       AND gc.hgvs IS NOT NULL AND gc.hgvs <> ''
                 """)
             else:
                 cur.execute("""
-                    SELECT gc."VRS_Digest_id", gc.hgvs
+                    SELECT gc."VRS_Digest", gc.hgvs
                     FROM variant_genomic_coordinates gc
-                    JOIN variant v ON v."VRS_Digest" = gc."VRS_Digest_id"
+                    JOIN variant v ON v."VRS_Digest" = gc."VRS_Digest"
                     WHERE gc.assembly = 'GRCh38'
                       AND gc.hgvs IS NOT NULL AND gc.hgvs <> ''
                       AND (v."CA_ID" IS NULL OR v."CA_ID" = '')
@@ -261,10 +261,10 @@ def main(db_url, schema, overwrite):
                 psycopg2.extras.execute_values(
                     cur,
                     """INSERT INTO variant_genomic_coordinates
-                           ("VRS_Digest_id", assembly, hgvs, chr, pos, end_pos, ref, alt)
+                           ("VRS_Digest", assembly, hgvs, chr, pos, end_pos, ref, alt)
                        VALUES %s
-                       ON CONFLICT ("VRS_Digest_id", assembly) DO NOTHING""",
-                    [(r['VRS_Digest_id'], r['assembly'], r['hgvs'],
+                       ON CONFLICT ("VRS_Digest", assembly) DO NOTHING""",
+                    [(r['VRS_Digest'], r['assembly'], r['hgvs'],
                       r['chr'], r['pos'], r['end_pos'], r['ref'], r['alt'])
                      for r in batch],
                 )

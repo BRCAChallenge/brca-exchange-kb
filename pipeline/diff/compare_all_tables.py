@@ -24,26 +24,26 @@ Runs compare_table.py for each table and writes output files to DIR:
 
 variant uses VRS_Digest as its natural primary key.
 
-variant_genomic_coordinates uses (VRS_Digest_id, assembly) as the natural key for
+variant_genomic_coordinates uses (VRS_Digest, assembly) as the natural key for
 matching rows, since its surrogate id column differs across schemas. That same
 id column is also omitted from the diff itself, since it always differs.
 
-report_gnomad uses (VRS_Digest_id, version, data_type) as the natural key for
+report_gnomad uses (VRS_Digest, version, data_type) as the natural key for
 matching rows, since its surrogate id column differs across schemas. That same
 id column is also omitted from the diff itself, since it always differs.
 
-report_lovd uses (VRS_Digest_id, Submission_ID) as the natural key, for the
+report_lovd uses (VRS_Digest, Submission_ID) as the natural key, for the
 same reason (surrogate id column differs across schemas); that id column is
 likewise omitted from the diff.
 
-report_clinvar uses (VRS_Digest_id, SCV) as the natural key, for the same
+report_clinvar uses (VRS_Digest, SCV) as the natural key, for the same
 reason; SCV (the ClinVar submission accession) is unique on its own, but
-VRS_Digest_id is included for consistency with the other report_* tables.
+VRS_Digest is included for consistency with the other report_* tables.
 That surrogate id column is likewise omitted from the diff.
 
 variant_enigma (despite the name, a report_* table with a surrogate id: one
 ENIGMA row per variant in practice, via a plain ForeignKey rather than
-OneToOne) uses VRS_Digest_id alone as the natural key, since it's unique on
+OneToOne) uses VRS_Digest alone as the natural key, since it's unique on
 its own; the id column is likewise omitted from the diff.
 
 summary.txt collects, for each table, the stdout (shared/deleted/added counts
@@ -60,14 +60,14 @@ _COMPARE = os.path.join(_SCRIPT_DIR, 'compare_table.py')
 
 TABLES = [
     dict(table='variant',              pk=None, omit=['Synonyms', 'VRS', 'ensembl_cdna', 'ensembl_protein', 'title']),
-    dict(table='variant_genomic_coordinates',  pk=['VRS_Digest_id', 'assembly'], omit=['id']),
+    dict(table='variant_genomic_coordinates',  pk=['VRS_Digest', 'assembly'], omit=['id']),
     dict(table='variant_gnomad', pk=None, omit=None),
-    dict(table='report_gnomad',  pk=['VRS_Digest_id', 'version', 'data_type'], omit=['id']),
+    dict(table='report_gnomad',  pk=['VRS_Digest', 'version', 'data_type'], omit=['id']),
     dict(table='variant_lovd',   pk=None, omit=None),
-    dict(table='report_lovd',    pk=['VRS_Digest_id', 'Submission_ID'], omit=['id']),
+    dict(table='report_lovd',    pk=['VRS_Digest', 'Submission_ID'], omit=['id']),
     dict(table='variant_clinvar', pk=None, omit=None),
-    dict(table='report_clinvar',  pk=['VRS_Digest_id', 'SCV'], omit=['id']),
-    dict(table='variant_enigma',  pk=['VRS_Digest_id'], omit=['id']),
+    dict(table='report_clinvar',  pk=['VRS_Digest', 'SCV'], omit=['id']),
+    dict(table='variant_enigma',  pk=['VRS_Digest'], omit=['id']),
     dict(table='variant_exlovd',  pk=None, omit=None),
     dict(table='variant_other',        pk=None, omit=None),
     dict(table='analysis_bayesdel',   pk=None, omit=None),

@@ -422,9 +422,9 @@ SELECT v."VRS_Digest", v."HGVS_cDNA",
        rg.faf95_popmax, rg.faf95_popmax_population
 FROM variant v
 JOIN variant_genomic_coordinates gc
-     ON gc."VRS_Digest_id" = v."VRS_Digest" AND gc.assembly = 'GRCh38'
+     ON gc."VRS_Digest" = v."VRS_Digest" AND gc.assembly = 'GRCh38'
 LEFT JOIN report_gnomad rg
-     ON rg."VRS_Digest_id" = v."VRS_Digest" AND rg.version = 'v4.1' AND rg.data_type = 'joint'
+     ON rg."VRS_Digest" = v."VRS_Digest" AND rg.version = 'v4.1' AND rg.data_type = 'joint'
 """
 
 _QUERY_UNSCORED = _QUERY_ALL + """

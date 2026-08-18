@@ -474,7 +474,7 @@ def _load_rows_from_db(conn, schema):
                 COALESCE(v."Synonyms",   '-') AS "Synonyms"
             FROM {schema}.variant v
             JOIN {schema}.variant_genomic_coordinates gc
-              ON gc."VRS_Digest_id" = v."VRS_Digest"
+              ON gc."VRS_Digest" = v."VRS_Digest"
              AND gc.assembly = 'GRCh38'
             WHERE gc.chr IS NOT NULL AND gc.pos IS NOT NULL
               AND gc.ref IS NOT NULL AND gc.alt IS NOT NULL
@@ -512,9 +512,9 @@ def _write_rows_to_db(conn, schema, processed_rows):
             if hg37_hgvs and str(hg37_hgvs).strip() not in ('', 'None', '-'):
                 cur.execute(f"""
                     INSERT INTO {schema}.variant_genomic_coordinates
-                        ("VRS_Digest_id", assembly, hgvs)
+                        ("VRS_Digest", assembly, hgvs)
                     VALUES (%s, 'GRCh37', %s)
-                    ON CONFLICT ("VRS_Digest_id", assembly) DO UPDATE
+                    ON CONFLICT ("VRS_Digest", assembly) DO UPDATE
                         SET hgvs = EXCLUDED.hgvs
                 """, [digest, hg37_hgvs])
                 if cur.rowcount:

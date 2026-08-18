@@ -70,16 +70,16 @@ def main(db_url, schema, vep_url, overwrite):
         with conn.cursor() as cur:
             if overwrite:
                 cur.execute("""
-                    SELECT gc."VRS_Digest_id", gc.hgvs, gc.ref, gc.alt
+                    SELECT gc."VRS_Digest", gc.hgvs, gc.ref, gc.alt
                     FROM variant_genomic_coordinates gc
                     WHERE gc.assembly = 'GRCh38'
                       AND gc.hgvs IS NOT NULL AND gc.hgvs <> ''
                 """)
             else:
                 cur.execute("""
-                    SELECT gc."VRS_Digest_id", gc.hgvs, gc.ref, gc.alt
+                    SELECT gc."VRS_Digest", gc.hgvs, gc.ref, gc.alt
                     FROM variant_genomic_coordinates gc
-                    LEFT JOIN analysis_vep av ON av."VRS_Digest" = gc."VRS_Digest_id"
+                    LEFT JOIN analysis_vep av ON av."VRS_Digest" = gc."VRS_Digest"
                     WHERE gc.assembly = 'GRCh38'
                       AND gc.hgvs IS NOT NULL AND gc.hgvs <> ''
                       AND av."VRS_Digest" IS NULL

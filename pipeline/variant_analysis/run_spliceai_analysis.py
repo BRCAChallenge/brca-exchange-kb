@@ -76,15 +76,15 @@ def main(db_url, schema, spliceai_vcf, overwrite):
         with conn.cursor() as cur:
             if overwrite:
                 cur.execute("""
-                    SELECT gc."VRS_Digest_id", gc.chr, gc.pos, gc.ref, gc.alt
+                    SELECT gc."VRS_Digest", gc.chr, gc.pos, gc.ref, gc.alt
                     FROM variant_genomic_coordinates gc
                     WHERE gc.assembly = 'GRCh38'
                 """)
             else:
                 cur.execute("""
-                    SELECT gc."VRS_Digest_id", gc.chr, gc.pos, gc.ref, gc.alt
+                    SELECT gc."VRS_Digest", gc.chr, gc.pos, gc.ref, gc.alt
                     FROM variant_genomic_coordinates gc
-                    LEFT JOIN analysis_spliceai sa ON sa."VRS_Digest" = gc."VRS_Digest_id"
+                    LEFT JOIN analysis_spliceai sa ON sa."VRS_Digest" = gc."VRS_Digest"
                     WHERE gc.assembly = 'GRCh38'
                       AND sa."VRS_Digest" IS NULL
                 """)
