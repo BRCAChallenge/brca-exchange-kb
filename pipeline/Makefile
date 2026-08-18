@@ -172,6 +172,11 @@ run-pipeline: ## Run the current luigi pipeline locally (no Docker); output logg
 	[ -d $(LOG_DIR)/tmp/luigi_venv ] || python -m venv $(LOG_DIR)/tmp/luigi_venv
 	. $(LOG_DIR)/tmp/luigi_venv/bin/activate
 	pip install -q -r requirements.txt
+	# spliceai 1.3.1 (latest) uses pkg_resources which was removed from setuptools 71+.
+	# Same patch as pipeline/docker/Dockerfile: fall back to importlib when pkg_resources is missing.
+	SPLICEAI_DIR=$$(python -c "import spliceai, os; print(os.path.dirname(spliceai.__file__))")
+	python3 -c "import pathlib; p = pathlib.Path('$$SPLICEAI_DIR/__init__.py'); src = p.read_text(); src = src.replace('from pkg_resources import get_distribution', 'try:\n    from pkg_resources import get_distribution\nexcept ImportError:\n    from importlib.metadata import distribution as get_distribution'); p.write_text(src)"
+	python3 -c "import pathlib; p = pathlib.Path('$$SPLICEAI_DIR/utils.py'); src = p.read_text(); src = src.replace('from pkg_resources import resource_filename', 'try:\n    from pkg_resources import resource_filename\nexcept ImportError:\n    import importlib.resources\n    def resource_filename(package, resource):\n        return str(importlib.resources.files(package).joinpath(resource))'); p.write_text(src)"
 	PATH=$(LOG_DIR)/tmp/luigi_venv/bin:$(HOME)/bin:$(PATH) \
 	$(LOCAL_PIPELINE_ENV) \
 	python -m luigi --module $(VCF_ANALYSIS_MODULE) $(VCF_ANALYSIS_ROOT_TASK) \
