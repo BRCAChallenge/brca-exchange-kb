@@ -80,7 +80,7 @@ def run_spliceai(unscored_vcf, newly_scored_vcf,
                     "-R", genome_fa_file, "-A", genome_name, "-D", depth]
     if debug:
         print("About to execute", spliceai_cmd)
-    subprocess.run(spliceai_cmd)
+    subprocess.run(spliceai_cmd, check=True)
 
 
 def merge_scored_vcf(scored_vcf, newly_scored_vcf, output_vcf, debug=True):
@@ -88,7 +88,7 @@ def merge_scored_vcf(scored_vcf, newly_scored_vcf, output_vcf, debug=True):
     if debug:
         print("About to run", merge_cmd)
     with open(output_vcf, "w") as fp:
-        subprocess.run(merge_cmd, stdout=fp)
+        subprocess.run(merge_cmd, stdout=fp, check=True)
     
 def main():
     args = parse_args()
