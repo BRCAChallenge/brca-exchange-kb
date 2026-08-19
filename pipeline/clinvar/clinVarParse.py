@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 import re
 
 from clinvar import clinvar_common as clinvar
-from common import utils
+from common import config, utils
 
 
 def printHeader():
@@ -80,9 +80,18 @@ def main():
     parser.add_argument("clinVarXmlFilename")
     parser.add_argument('-a', "--assembly", default="GRCh38")
     parser.add_argument('-l', "--logs")
+    parser.add_argument('--configfile',
+                        help="path to gene configuration file; when given, "
+                             "GeneList entries whose gene's known chromosome "
+                             "doesn't match the variant's own coordinates are rejected")
     args = parser.parse_args()
 
     utils.setup_logfile(args.logs)
+
+    gene_chromosomes = None
+    if args.configfile:
+        gene_config_df = config.load_config(args.configfile)
+        gene_chromosomes = dict(zip(gene_config_df[config.SYMBOL_COL], gene_config_df[config.CHROM_COL]))
 
     printHeader()
 
@@ -91,7 +100,7 @@ def main():
         for event, elem in ET.iterparse(inputFile, events=('start', 'end')):
             if event == 'end' and elem.tag == 'VariationArchive':
                 if clinvar.isCurrent(elem):
-                    submissionSet = clinvar.variationArchive(elem, debug=False)
+                    submissionSet = clinvar.variationArchive(elem, gene_chromosomes=gene_chromosomes, debug=False)
                     if submissionSet.valid:
                         processSubmission(submissionSet, args.assembly)
                     else:

@@ -128,10 +128,17 @@ def main():
             # variants have not yet been scored
             shutil.copy2(args.output_vcf, scored_vcf)
     #
+    # scored_vcf holds every variant's score at this point -- unchanged from
+    # the previous release if nothing needed scoring, or the last merged
+    # result otherwise. Either way, it's the final output.
+    shutil.copy2(scored_vcf, args.output_vcf)
+    #
     # Cleanup
     os.remove(scored_vcf)
-    os.remove(unscored_vcf)
-    os.remove(newly_scored_vcf)
+    if os.path.exists(unscored_vcf):
+        os.remove(unscored_vcf)
+    if os.path.exists(newly_scored_vcf):
+        os.remove(newly_scored_vcf)
             
             
 if __name__ == "__main__":

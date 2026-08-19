@@ -190,7 +190,8 @@ class ConvertClinvarXMLToTXT(VCFAssemblyTask):
         args = [sys.executable, "clinVarParse.py",
                 self.input().path,
                 "--logs", self.clinvar_file_dir + "/clinvar_xml_to_txt.log",
-                "--assembly", "GRCh38"]
+                "--assembly", "GRCh38",
+                "--configfile", self.cfg.gene_config_path]
         pipeline_utils.run_process(args, redirect_stdout_path=self.output().path)
         pipeline_utils.check_file_for_contents(self.output().path)
 
