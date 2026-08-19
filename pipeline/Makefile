@@ -53,7 +53,17 @@ endif
 # download-resources already staged the same files into RESOURCES_DIR). Override from
 # generate_release.py (--run-gnomad-coverage-estimation) or directly as
 # DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW=true.
+#
+# DownloadGnomADCoverage is a plain luigi.Task (not a luigi.Config like
+# PipelineParams), and it lives in workflow.variant_assembly while the root
+# task runs out of workflow.variant_analysis -- so luigi only recognizes its
+# CLI flag in the fully module-qualified form below, and since compute_new is
+# a BoolParameter with implicit (store_true) parsing, the flag must be passed
+# bare (no value) and only when true.
 DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW ?= false
+ifeq ($(strip $(DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW)),true)
+DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW_FLAG = --workflow.variant-assembly.DownloadGnomADCoverage-compute-new
+endif
 
 LUIGI_ROOT_TASK = $(VCF_ANALYSIS_ROOT_TASK)
 LUIGI_WORKERS = 8
@@ -85,7 +95,7 @@ PIPELINE_ARGS := \
 	--PipelineParams-file-parent-dir $(VCF_ASSEMBLY_OUT_DIR) \
 	--PipelineParams-output-dir $(VCF_ASSEMBLY_OUT_DIR) \
 	--PipelineParams-db-schema $(PIPELINE_DB_SCHEMA) \
-	--DownloadGnomADCoverage-compute-new $(DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW) \
+	$(DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW_FLAG) \
 	--workers $(LUIGI_WORKERS)
 
 RUN_TASK_CMD = $(LOCAL_PIPELINE_ENV) python -m luigi --module $(VCF_ANALYSIS_MODULE)
