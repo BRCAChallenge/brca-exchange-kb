@@ -89,12 +89,24 @@ LOCAL_PIPELINE_ENV = \
 	UTA_DB_URL=$(VCF_ASSEMBLY_UTA_DB_URL) \
 	PYTHONPATH=$(PYTHONPATH_PIPELINE)
 
+# --gene-config below is DownloadGnomADCoverage's own gene_config parameter (distinct
+# from --PipelineParams-gene-config-path above), inherited via @requires into
+# ProvideGnomADv41JointVCF/ProvideGnomADv41ExomeVCF/VRSAnnotateGnomADv41 -- without it
+# those tasks silently default to gene_config_brca_only.txt and never pick up a
+# per-release gene set (verified: this silently dropped PALB2 from gnomAD v4.1 data on
+# the palb2 release, since the joint/exome VCFs came back with zero chr16 rows).
+# Unlike DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW_FLAG above, this must be passed at the ROOT
+# task (unprefixed, not module-qualified as --DownloadGnomADCoverage-gene-config) --
+# only the root-level flag actually threads a value down through the whole @requires
+# chain, since each level's auto-generated requires() clones its OWN parameter value
+# (defaulting per-class otherwise) rather than reading the leaf class's CLI flag directly.
 PIPELINE_ARGS := \
 	--PipelineParams-gene-config-path $(GENE_CONFIG_PIPELINE) \
 	--PipelineParams-seq-repo-dir $(VCF_ASSEMBLY_SEQ_REPO_DIR) \
 	--PipelineParams-file-parent-dir $(VCF_ASSEMBLY_OUT_DIR) \
 	--PipelineParams-output-dir $(VCF_ASSEMBLY_OUT_DIR) \
 	--PipelineParams-db-schema $(PIPELINE_DB_SCHEMA) \
+	--gene-config $(GENE_CONFIG_PIPELINE) \
 	$(DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW_FLAG) \
 	--workers $(LUIGI_WORKERS)
 

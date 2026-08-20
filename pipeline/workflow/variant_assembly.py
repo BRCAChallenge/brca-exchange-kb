@@ -11,7 +11,6 @@ from luigi.util import requires
 
 luigi.auto_namespace(scope=__name__)
 
-from common import config as brca_config
 from workflow import pipeline_utils
 from workflow.pipeline_common import PipelineParams
 
@@ -773,10 +772,9 @@ class LoadVCFsToDatabase(VCFAssemblyTask):
 
     def run(self):
         enigma_in, clinvar_in, lovd_in, exlovd_in, gnomad_in, assays_in, gnomad_v41_in = self.input()
-        gene_config = os.path.join(_pipeline_dir, 'workflow', 'gene_config_brca_only.txt')
         args = [
             sys.executable, "manage.py", "load_vcf", "--skip-checks",
-            "--gene-config",             gene_config,
+            "--gene-config",             self.cfg.gene_config_path,
             "--enigma-vcf",              enigma_in["vcf"].path,
             "--enigma-pkl",              enigma_in["pkl"].path,
             "--clinvar-vcf",             clinvar_in["vcf"].path,
@@ -820,8 +818,7 @@ class ExtractVaraicoBRCARegions(VCFAssemblyTask):
         return luigi.LocalTarget(os.path.join(self.varaico_dir, "varaico_brca_raw.tsv"))
 
     def run(self):
-        gene_config = brca_config.load_config(
-            os.path.join(_pipeline_dir, 'workflow', 'gene_config_brca_only.txt'))
+        gene_config = self.cfg.gene_metadata
 
         header_written = False
         with open(self.output().path, "w") as out_f:
@@ -861,8 +858,7 @@ class FilterVaraicoToGeneBoundaries(VCFAssemblyTask):
         }
 
     def run(self):
-        gene_config = brca_config.load_config(
-            os.path.join(_pipeline_dir, 'workflow', 'gene_config_brca_only.txt'))
+        gene_config = self.cfg.gene_metadata
         boundaries = {
             f"chr{row['chr']}": (int(row['start_hg38']), int(row['end_hg38']))
             for _, row in gene_config.iterrows()
@@ -994,12 +990,11 @@ class RunPseudonymGenerator(VCFAssemblyTask):
 
     def run(self):
         script = os.path.join(_pipeline_dir, "variant_assembly", "pseudonym_generator.py")
-        gene_config = os.path.join(_pipeline_dir, 'workflow', 'gene_config_brca_only.txt')
         args = [
             sys.executable, script,
             "--db-url",    self.db_url,
             "--schema",    self.cfg.db_schema,
-            "--configfile", gene_config,
+            "--configfile", self.cfg.gene_config_path,
             "--resources",  self.cfg.resources_dir,
         ]
         os.environ['HGVS_SEQREPO_DIR'] = self.cfg.seq_repo_dir
