@@ -5,8 +5,17 @@ VEP forbids HGVS format in offline mode, so genomic HGVS strings are
 converted to VCF format internally before being passed to VEP.
 
 Endpoints:
-  GET /vep/hgvs/<hgvs_notation>  — run VEP on one genomic HGVS string, return JSON array
-  GET /health                     — liveness check
+  GET  /vep/hgvs/<hgvs_notation>         — run VEP (Ensembl cache) on one HGVS string, return JSON array
+  GET  /vep/hgvs/refseq/<hgvs_notation>  — run VEP (RefSeq cache) on one HGVS string, return JSON array
+  POST /vep/hgvs/batch                   — run VEP (Ensembl cache) on a JSON array of HGVS strings
+  POST /vep/hgvs/batch/refseq            — run VEP (RefSeq cache) on a JSON array of HGVS strings
+  GET  /health                            — liveness check
+
+The Ensembl-cache endpoints report transcript_consequences with Ensembl
+(ENST...) transcript IDs; the refseq endpoints run VEP with --refseq
+against a RefSeq cache so transcript_consequences report RefSeq
+(NM_/NR_...) transcript IDs instead. Both caches must be present under
+VEP_CACHE_DIR (as homo_sapiens/ and homo_sapiens_refseq/ respectively).
 """
 
 import json
@@ -21,6 +30,8 @@ VEP_CACHE_DIR = os.environ.get('VEP_CACHE_DIR', '/vep_cache')
 VEP_FASTA     = os.environ.get('VEP_FASTA',     '/references/hg38.fa')
 ASSEMBLY      = os.environ.get('VEP_ASSEMBLY',   'GRCh38')
 PORT          = int(os.environ.get('VEP_PORT',   '8080'))
+
+_COMPLEMENT = str.maketrans('ACGT', 'TGCA')
 
 # Map RefSeq contig accessions to UCSC-style chromosome names (chr-prefixed)
 CONTIG_TO_CHROM = {
@@ -108,6 +119,22 @@ def genomic_hgvs_to_vcf(hgvs_str):
         anchor = _fasta_fetch(chrom, start - 1, start - 1)
         return chrom, start - 1, anchor, anchor + seq
 
+    # Single-base duplication:  32367837dup
+    dup1 = re.match(r'(\d+)dup$', change)
+    if dup1:
+        pos = int(dup1.group(1))
+        base = _fasta_fetch(chrom, pos, pos)
+        return chrom, pos, base, base + base
+
+    # Inversion:  32332842_32332843inv
+    inv = re.match(r'(\d+)_(\d+)inv$', change)
+    if inv:
+        start = int(inv.group(1))
+        end   = int(inv.group(2))
+        ref   = _fasta_fetch(chrom, start, end)
+        alt   = ref.translate(_COMPLEMENT)[::-1]
+        return chrom, start, ref, alt
+
     raise ValueError(f'Unhandled HGVS change: {change}')
 
 
@@ -126,16 +153,21 @@ VEP_ARGS = [
 ]
 
 
-def _run_vep_on_vcf(vcf_lines):
-    """Write vcf_lines to a temp file, run VEP, return parsed JSON records."""
+def _run_vep_on_vcf(vcf_lines, refseq=False):
+    """Write vcf_lines to a temp file, run VEP, return parsed JSON records.
+
+    refseq=True runs VEP with --refseq against the RefSeq cache, so
+    transcript_consequences report NM_/NR_ transcript IDs instead of ENST.
+    """
     with tempfile.NamedTemporaryFile(mode='w', suffix='.vcf', delete=False) as fh:
         fh.write('##fileformat=VCFv4.1\n')
         fh.write('#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n')
         fh.writelines(vcf_lines)
         tmp = fh.name
     try:
+        args = VEP_ARGS + (['--refseq'] if refseq else [])
         result = subprocess.run(
-            VEP_ARGS + ['--input_file', tmp],
+            args + ['--input_file', tmp],
             capture_output=True, text=True, timeout=600,
         )
         if result.returncode != 0:
@@ -145,13 +177,13 @@ def _run_vep_on_vcf(vcf_lines):
         os.unlink(tmp)
 
 
-def run_vep(hgvs_notation):
+def run_vep(hgvs_notation, refseq=False):
     """Run VEP on a single HGVS string; return list of result records."""
     chrom, pos, ref, alt = genomic_hgvs_to_vcf(hgvs_notation)
-    return _run_vep_on_vcf([f'{chrom}\t{pos}\t.\t{ref}\t{alt}\t.\t.\t.\n'])
+    return _run_vep_on_vcf([f'{chrom}\t{pos}\t.\t{ref}\t{alt}\t.\t.\t.\n'], refseq=refseq)
 
 
-def run_vep_batch(hgvs_list):
+def run_vep_batch(hgvs_list, refseq=False):
     """Run VEP on a list of HGVS strings in a single VEP call.
 
     Returns a dict mapping each input HGVS string to its list of VEP records.
@@ -174,7 +206,7 @@ def run_vep_batch(hgvs_list):
     results.update(errors)
 
     if vcf_lines:
-        for record in _run_vep_on_vcf(vcf_lines):
+        for record in _run_vep_on_vcf(vcf_lines, refseq=refseq):
             vid = record.get('id', '')
             hgvs = id_to_hgvs.get(vid)
             if hgvs:
@@ -202,6 +234,18 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, '{"status":"ok"}')
             return
 
+        if path.startswith('/vep/hgvs/refseq/'):
+            hgvs = path[len('/vep/hgvs/refseq/'):]
+            if not hgvs:
+                self._send(400, '{"error":"missing HGVS notation"}')
+                return
+            try:
+                records = run_vep(hgvs, refseq=True)
+                self._send(200, json.dumps(records))
+            except Exception as e:
+                self._send(500, json.dumps({'error': str(e)}))
+            return
+
         if path.startswith('/vep/hgvs/'):
             hgvs = path[len('/vep/hgvs/'):]
             if not hgvs:
@@ -218,6 +262,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = unquote(self.path)
+
+        if path == '/vep/hgvs/batch/refseq':
+            length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(length)
+            try:
+                hgvs_list = json.loads(body)
+                if not isinstance(hgvs_list, list):
+                    raise ValueError('Expected a JSON array')
+                results = run_vep_batch(hgvs_list, refseq=True)
+                self._send(200, json.dumps(results))
+            except Exception as e:
+                self._send(400, json.dumps({'error': str(e)}))
+            return
 
         if path == '/vep/hgvs/batch':
             length = int(self.headers.get('Content-Length', 0))

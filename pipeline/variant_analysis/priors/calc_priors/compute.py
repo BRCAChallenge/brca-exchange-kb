@@ -222,7 +222,16 @@ def getVarLocation(variant, boundaries):
     """
     Given a variant, returns the variant location as below
     Second argument is for CI domain boundaries (PRIORS or ENIGMA)
+
+    Returns "unrecognized_reference_sequence_variant" if variant["Reference_Sequence"]
+    isn't a recognized BRCA1/BRCA2 canonical transcript, since exon/splice-site
+    coordinates are only known for those transcripts — this is checked before
+    varOutsideBoundaries so such variants aren't misclassified as
+    "outside_transcript_boundaries_variant" (which would assign them a
+    fabricated prior instead of leaving their prior fields null).
     """
+    if verify.getTranscriptData(variant["Reference_Sequence"]) is None:
+        return "unrecognized_reference_sequence_variant"
     varOutBounds = verify.varOutsideBoundaries(variant)
     if varOutBounds:
         return "outside_transcript_boundaries_variant"
