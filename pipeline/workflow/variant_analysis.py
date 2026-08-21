@@ -19,7 +19,8 @@ _pipeline_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 @requires(VCFAssembly)
 class AnalyzeVEP(VCFAssemblyTask):
-    """Run VEP on all variants and populate analysis_vep.variant_class."""
+    """Run VEP on all variants and populate analysis_vep (variant_class, variant_type,
+    consequences, hgvsp, ptc_genomic_pos)."""
 
     vep_server_url = luigi.Parameter(
         default='http://localhost:8888',

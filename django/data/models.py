@@ -278,16 +278,46 @@ class Variant_in_Paper(models.Model):
 
 
 
+# VEP consequence_terms that indicate a variant introduces a premature termination codon.
+# Splice-altering terms are deliberately excluded: VEP's consequence call for those doesn't
+# predict the resulting spliced transcript, so there's no reliable basis for a PTC call here.
+PTC_CONSEQUENCE_TERMS = {'stop_gained', 'frameshift_variant'}
+
+
+class AnalysisVEPQuerySet(models.QuerySet):
+    def introduces_ptc(self):
+        q = models.Q()
+        for term in PTC_CONSEQUENCE_TERMS:
+            q |= models.Q(consequences__regex=rf'(^|,){term}(,|$)')
+        return self.filter(q)
+
+
 class AnalysisVEP(models.Model):
     """VEP annotation results for a variant."""
+    objects       = AnalysisVEPQuerySet.as_manager()
     VRS_Digest    = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE,
                                          related_name='vep_analysis', db_column='VRS_Digest')
     variant_class = models.TextField(null=True)
     variant_type  = models.TextField(null=True)
+    # VEP consequence_terms for the Variant.Reference_Sequence RefSeq transcript, comma-separated
+    consequences  = models.TextField(null=True)
+    # VEP HGVSp notation for the Variant.Reference_Sequence RefSeq transcript, e.g.
+    # "NP_009225.1:p.Gln356GlufsTer9"
+    hgvsp         = models.TextField(null=True)
+    # GRCh38 1-based genomic position of the first base of the premature stop codon
+    # described by hgvsp; only set when consequences intersects PTC_CONSEQUENCE_TERMS
+    # and the position could be resolved. Chromosome is implied by Gene_Symbol
+    # (BRCA1 -> chr17, BRCA2 -> chr13).
+    ptc_genomic_pos = models.IntegerField(null=True)
     VA_Spec       = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = 'analysis_vep'
+
+    @property
+    def introduces_ptc(self):
+        terms = set((self.consequences or '').split(','))
+        return bool(terms & PTC_CONSEQUENCE_TERMS)
 
 
 class AnalysisBayesDel(models.Model):
