@@ -9,6 +9,8 @@ from typing import Iterable, List, Optional
 
 from pyliftover import LiftOver
 
+import psycopg2
+import psycopg2.extras
 import requests
 import hgvs.dataproviders.uta
 from hgvs.assemblymapper import AssemblyMapper
@@ -265,7 +267,7 @@ def get_synonyms(gene_symbol, genomic_hgvs_string, target_transcripts, hdp, pars
             try:
                 var_c = assembly_mapper.g_to_c(genomic_hgvs, transcript)
                 synonyms.append(str(normalizer.normalize(var_c)))
-            except HGVSError as e:
+            except Exception as e:
                 logging.info("Exception in synonym handling for mapping %s to transcript %s" % (str(genomic_hgvs), transcript))
     return list({str(s) for s in synonyms}) # making sure, every representation appears only once
 
@@ -291,19 +293,6 @@ def _merge_and_clean_synonyms(row: dict, new_synonyms):
                        row[HGVS_CDNA_COL]}
     list_sorted_cleaned = [v for v in list_sorted if v not in reps_other_cols and v != str(None) and v != '-']
     return ','.join(list_sorted_cleaned)
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(description="Generate pseudonyms for BRCA variants")
-    parser.add_argument('input', help="Input TSV file path")
-    parser.add_argument('output', help="Output TSV file path")
-    parser.add_argument('--logpath', default='pseudonym_generator.log', help="Log file path")
-    parser.add_argument('--configfile', required=True, help="path to gene configuration file")
-    parser.add_argument('--resources', help="path to directory containing reference sequences")
-    parser.add_argument('--debug', help="Turn on extra debugging info?",
-                        action='store_true', default=False)
-    return parser.parse_args()
-
 
 
 def map_via_seqrepo(this_gene, genomic_hgvs_38, default_cdna, normalizer,
@@ -336,22 +325,226 @@ def map_via_seqrepo(this_gene, genomic_hgvs_38, default_cdna, normalizer,
 
 
 def ensure_mane_transcript_cdna(row, mane_transcript, hgvs_proc, normalizer, am38, debug=False):
-    """If the cDNA in row does not use the MANE transcript, remap using SeqRepo."""
-    if not row[PYHGVS_CDNA_COL] or not row[PYHGVS_CDNA_COL].startswith(mane_transcript) or row[REFERENCE_SEQUENCE_COL] is not mane_transcript:
-        genomic_hgvs_38_obj = hgvs_proc.hgvs_parser.parse(str(row[PYHGVS_GENOMIC_COORDINATE_38_COL]))
-        try:
-            cdna_hgvs = normalizer.normalize(am38.g_to_c(genomic_hgvs_38_obj, mane_transcript))
-            row[PYHGVS_CDNA_COL] = str(cdna_hgvs)
-            parts = row[PYHGVS_CDNA_COL].split(':')
-            row[REFERENCE_SEQUENCE_COL] = parts[0]
-            row[HGVS_CDNA_COL] = parts[1]
-        except (hgvs.exceptions.HGVSInvalidIntervalError,
-                hgvs.exceptions.HGVSUnsupportedOperationError):
-            logging.warning(
-                f"Could not remap {row[PYHGVS_GENOMIC_COORDINATE_38_COL]} to MANE transcript {mane_transcript}")
-            row[REFERENCE_SEQUENCE_COL] = mane_transcript
-            row[HGVS_CDNA_COL] = "-"
-            row[PYHGVS_CDNA_COL] = "-"
+    """Ensure row[HGVS_CDNA_COL] is on the MANE transcript.
+
+    If ClinGen already returned a cDNA on the MANE transcript, extract it directly.
+    Otherwise try SeqRepo. If SeqRepo fails, preserve any value already loaded from
+    the source VCF; only fall back to '-' when there was nothing there to begin with.
+    """
+    pyhgvs_cdna = row[PYHGVS_CDNA_COL]
+
+    if pyhgvs_cdna and pyhgvs_cdna.startswith(mane_transcript):
+        # ClinGen returned the MANE transcript cDNA — accept it directly.
+        parts = pyhgvs_cdna.split(':')
+        row[REFERENCE_SEQUENCE_COL] = parts[0]
+        row[HGVS_CDNA_COL] = parts[1]
+        return
+
+    # No MANE cDNA from ClinGen (absent or on a different transcript) — try SeqRepo.
+    # Normalize the genomic variant first, then translate; this avoids applying
+    # cDNA-level normalization to intronic positions (unsupported by the HGVS library).
+    genomic_hgvs_38_obj = hgvs_proc.hgvs_parser.parse(str(row[PYHGVS_GENOMIC_COORDINATE_38_COL]))
+    try:
+        normalized_g = normalizer.normalize(genomic_hgvs_38_obj)
+        cdna_hgvs = am38.g_to_c(normalized_g, mane_transcript)
+        row[PYHGVS_CDNA_COL] = str(cdna_hgvs)
+        parts = row[PYHGVS_CDNA_COL].split(':')
+        row[REFERENCE_SEQUENCE_COL] = parts[0]
+        row[HGVS_CDNA_COL] = parts[1]
+    except (hgvs.exceptions.HGVSInvalidIntervalError,
+            hgvs.exceptions.HGVSUnsupportedOperationError,
+            hgvs.exceptions.HGVSDataNotAvailableError):
+        logging.warning(
+            f"Could not remap {row[PYHGVS_GENOMIC_COORDINATE_38_COL]} to MANE transcript {mane_transcript}")
+        row[REFERENCE_SEQUENCE_COL] = mane_transcript
+        # Preserve any HGVS_cDNA already loaded from the source VCF; only
+        # fall back to '-' if there was nothing there to begin with.
+        if not row[HGVS_CDNA_COL] or row[HGVS_CDNA_COL] == '-':
+            row[HGVS_CDNA_COL] = '-'
+        row[PYHGVS_CDNA_COL] = '-'
+
+
+def process_rows(rows, mane_transcript_dict, syn_ac_dict, chrom_ac_dict,
+                 hgvs_proc, hp, genomic_normalizer, am38, am37, lo, debug=False):
+    """Core pseudonym computation: enrich rows in-place and return processed list.
+
+    Each row dict must contain: Chr, Pos, Ref, Alt, Gene_Symbol,
+    Reference_Sequence, HGVS_cDNA, Synonyms.
+
+    Adds keys: pyhgvs_Genomic_Coordinate_38, pyhgvs_cDNA,
+    pyhgvs_Genomic_Coordinate_37, pyhgvs_Hg37_Start, pyhgvs_Hg37_End,
+    pyhgvs_Protein, CA_ID, Genomic_HGVS_38, Genomic_HGVS_37.
+    """
+    hdp = hgvs_proc.hgvs_dp
+
+    hgvs_values = [
+        hgvs_proc.genomic_hgvs(row[CHR_COL], int(row[POS_COL]), row[REF_COL], row[ALT_COL])
+        for row in rows
+    ]
+
+    logging.info("Querying ClinGen Allele Registry for CA IDs")
+    ca_ids, grch37_hgvs, mane_select_cdna, mane_select_protein, transcript_allele_hgvs = \
+        _query_server([str(v) for v in hgvs_values], CLINGEN_ALLELE_REGISTRY_ENDPOINT)
+
+    for row, ca_id, grch37_hgvs_val, cdna, protein, synonyms in zip(
+            rows, ca_ids, grch37_hgvs, mane_select_cdna, mane_select_protein, transcript_allele_hgvs):
+        row[CA_ID_COL] = ca_id
+        row[PYHGVS_GENOMIC_COORDINATE_37_COL] = grch37_hgvs_val
+        row[PYHGVS_CDNA_COL] = cdna
+        row[PYHGVS_PROTEIN_COL] = protein
+        row[SYNONYMS_COL] = _filter_and_extend_synonyms(row[SYNONYMS_COL], synonyms)
+
+    processed_rows = []
+    for row, genomic_hgvs_38 in zip(rows, hgvs_values):
+        row[PYHGVS_GENOMIC_COORDINATE_38_COL] = genomic_hgvs_38
+        if debug:
+            print("working on variant", row[PYHGVS_GENOMIC_COORDINATE_38_COL], "reference",
+                  row[REFERENCE_SEQUENCE_COL], "cDNA", row[HGVS_CDNA_COL],
+                  "allele registry", row[CA_ID_COL])
+        this_gene = row[GENE_SYMBOL_COL]
+        if row[PYHGVS_GENOMIC_COORDINATE_37_COL] is None:
+            (row[PYHGVS_CDNA_COL], row[PYHGVS_GENOMIC_COORDINATE_37_COL], row[PYHGVS_PROTEIN_COL]) = \
+                map_via_seqrepo(row['Gene_Symbol'], genomic_hgvs_38,
+                                mane_transcript_dict[this_gene],
+                                genomic_normalizer, hgvs_proc,
+                                am38, am37, str(chrom_ac_dict[this_gene]),
+                                debug=debug)
+            if debug:
+                print("Updating synonyms via SeqRepo")
+            try:
+                new_synonyms = get_synonyms(
+                    this_gene, genomic_hgvs_38, syn_ac_dict[this_gene], hdp,
+                    hp, genomic_normalizer, am38)
+            except Exception as e:
+                logging.warning(f"get_synonyms failed for {genomic_hgvs_38}: {e}")
+                new_synonyms = []
+            row[SYNONYMS_COL] = _merge_and_clean_synonyms(row, new_synonyms)
+        if row[PYHGVS_GENOMIC_COORDINATE_37_COL]:
+            (row[PYHGVS_HG37_START_COL], row[PYHGVS_HG37_END_COL]) = genomic_hgvs_to_coords(row[PYHGVS_GENOMIC_COORDINATE_37_COL], hp)
+        else:
+            row[PYHGVS_GENOMIC_COORDINATE_37_COL] = liftover_hgvs_38_to_37(
+                row[PYHGVS_GENOMIC_COORDINATE_38_COL], hp, hgvs_proc.contig_maps, lo)
+            if row[PYHGVS_GENOMIC_COORDINATE_37_COL]:
+                (row[PYHGVS_HG37_START_COL], row[PYHGVS_HG37_END_COL]) = genomic_hgvs_to_coords(row[PYHGVS_GENOMIC_COORDINATE_37_COL], hp)
+            else:
+                row[PYHGVS_HG37_START_COL] = None
+                row[PYHGVS_HG37_END_COL] = None
+        ensure_mane_transcript_cdna(row, mane_transcript_dict[this_gene], hgvs_proc, genomic_normalizer,
+                                    am38, debug=debug)
+        row[GENOMIC_HGVS_HG38_COL] = row[PYHGVS_GENOMIC_COORDINATE_38_COL]
+        row[GENOMIC_HGVS_HG37_COL] = row[PYHGVS_GENOMIC_COORDINATE_37_COL]
+        processed_rows.append(row)
+
+    return processed_rows
+
+
+def _init_hgvs_tools():
+    hgvs_proc = HgvsWrapper()
+    hp = hgvs_proc.hgvs_parser
+    genomic_normalizer = hgvs_proc.hgvs_norm
+    am38 = hgvs_proc.hgvs_ams[HgvsWrapper.GRCh38_Assem]
+    am37 = hgvs_proc.hgvs_ams[HgvsWrapper.GRCh37_Assem]
+    lo = LiftOver('hg38', 'hg19')
+    return hp, genomic_normalizer, am38, am37, hgvs_proc, lo
+
+
+def _normalize_gene_symbol(gene_symbol, known_genes):
+    """Return the canonical gene symbol if gene_symbol contains one, else None."""
+    if gene_symbol in known_genes:
+        return gene_symbol
+    for symbol in known_genes:
+        if symbol in gene_symbol:
+            return symbol
+    return None
+
+
+def _load_rows_from_db(conn, schema):
+    """Return list of row dicts from DB (variant JOIN variant_genomic_coordinates GRCh38)."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(f"""
+            SELECT
+                v."VRS_Digest"           AS "VRS_Digest",
+                REPLACE(gc.chr, 'chr', '') AS "Chr",
+                gc.pos                   AS "Pos",
+                gc.ref                   AS "Ref",
+                gc.alt                   AS "Alt",
+                v."Gene_Symbol"          AS "Gene_Symbol",
+                COALESCE(v."Reference_Sequence", '-') AS "Reference_Sequence",
+                COALESCE(v."HGVS_cDNA",  '-') AS "HGVS_cDNA",
+                COALESCE(v."Synonyms",   '-') AS "Synonyms"
+            FROM {schema}.variant v
+            JOIN {schema}.variant_genomic_coordinates gc
+              ON gc."VRS_Digest" = v."VRS_Digest"
+             AND gc.assembly = 'GRCh38'
+            WHERE gc.chr IS NOT NULL AND gc.pos IS NOT NULL
+              AND gc.ref IS NOT NULL AND gc.alt IS NOT NULL
+        """)
+        return [dict(r) for r in cur.fetchall()]
+
+
+def _write_rows_to_db(conn, schema, processed_rows):
+    """Write enriched fields from processed_rows back to the DB."""
+    updated_variants = 0
+    upserted_gc = 0
+    with conn.cursor() as cur:
+        for row in processed_rows:
+            digest = row['VRS_Digest']
+            cur.execute(f"""
+                UPDATE {schema}.variant
+                SET "Reference_Sequence" = %s,
+                    "HGVS_cDNA"          = %s,
+                    "HGVS_Protein"       = %s,
+                    "CA_ID"              = %s,
+                    "Synonyms"           = %s
+                WHERE "VRS_Digest" = %s
+            """, [
+                row.get(REFERENCE_SEQUENCE_COL) or '-',
+                row.get(HGVS_CDNA_COL) or '-',
+                row.get(PYHGVS_PROTEIN_COL) or '-',
+                row.get(CA_ID_COL) or None,
+                row.get(SYNONYMS_COL) or '-',
+                digest,
+            ])
+            if cur.rowcount:
+                updated_variants += 1
+
+            hg37_hgvs = row.get(GENOMIC_HGVS_HG37_COL) or row.get(PYHGVS_GENOMIC_COORDINATE_37_COL)
+            if hg37_hgvs and str(hg37_hgvs).strip() not in ('', 'None', '-'):
+                cur.execute(f"""
+                    INSERT INTO {schema}.variant_genomic_coordinates
+                        ("VRS_Digest", assembly, hgvs)
+                    VALUES (%s, 'GRCh37', %s)
+                    ON CONFLICT ("VRS_Digest", assembly) DO UPDATE
+                        SET hgvs = EXCLUDED.hgvs
+                """, [digest, hg37_hgvs])
+                if cur.rowcount:
+                    upserted_gc += 1
+
+    conn.commit()
+    logging.info('Updated %d variant rows, upserted %d GRCh37 coordinate rows',
+                 updated_variants, upserted_gc)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Generate pseudonyms for BRCA variants")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--db-url',
+                      help='PostgreSQL connection URL; reads from and writes to the database')
+    mode.add_argument('input', nargs='?',
+                      help="Input TSV file path (TSV mode)")
+    parser.add_argument('output', nargs='?',
+                        help="Output TSV file path (TSV mode; required with input)")
+    parser.add_argument('--schema', default='pipeline',
+                        help='DB schema to use (DB mode only)')
+    parser.add_argument('--logpath', default='pseudonym_generator.log', help="Log file path")
+    parser.add_argument('--configfile', required=True, help="path to gene configuration file")
+    parser.add_argument('--resources', help="path to directory containing reference sequences")
+    parser.add_argument('--debug', help="Turn on extra debugging info?",
+                        action='store_true', default=False)
+    args = parser.parse_args()
+    if args.input and not args.output:
+        parser.error("output is required when input is provided")
+    return args
 
 
 def main():
@@ -364,82 +557,43 @@ def main():
     syn_ac_dict = {r[config.SYMBOL_COL]: r[config.SYNONYM_AC_COL].split(';') for _, r in config_df.iterrows()}
     chrom_ac_dict = {r[config.SYMBOL_COL]: r[config.CHROM_COL] for _, r in config_df.iterrows()}
 
-    hdp = hgvs.dataproviders.uta.connect()
-    hp = Parser()
-    genomic_normalizer = Normalizer(hdp)
-    am38 = AssemblyMapper(hdp, assembly_name="GRCh38", alt_aln_method="splign", normalize=True)
-    am37 = AssemblyMapper(hdp, assembly_name="GRCh37", alt_aln_method="splign", normalize=True)
-    hgvs_proc = HgvsWrapper()
-    lo = LiftOver('hg38', 'hg19')
+    hp, genomic_normalizer, am38, am37, hgvs_proc, lo = _init_hgvs_tools()
 
-    with open(args.input, 'r') as input_fp:
-        reader = csv.DictReader(input_fp, delimiter='\t')
-        new_fieldnames = [
-            PYHGVS_GENOMIC_COORDINATE_38_COL, PYHGVS_CDNA_COL, PYHGVS_GENOMIC_COORDINATE_37_COL,
-            PYHGVS_HG37_START_COL, PYHGVS_HG37_END_COL, PYHGVS_PROTEIN_COL, CA_ID_COL,
-            GENOMIC_HGVS_HG38_COL, GENOMIC_HGVS_HG37_COL,
-        ]
-        rows = list(reader)
-        output_fieldnames = reader.fieldnames + new_fieldnames
+    if args.db_url:
+        conn = psycopg2.connect(args.db_url)
+        conn.autocommit = False
+        rows = _load_rows_from_db(conn, args.schema)
+        logging.info('Loaded %d variants from DB', len(rows))
+        known_genes = set(mane_transcript_dict.keys())
+        for row in rows:
+            row['Gene_Symbol'] = _normalize_gene_symbol(row['Gene_Symbol'], known_genes)
+        rows = [r for r in rows if r['Gene_Symbol'] is not None]
+        logging.info('Filtered to %d variants with known gene symbols', len(rows))
+        processed_rows = process_rows(rows, mane_transcript_dict, syn_ac_dict, chrom_ac_dict,
+                                      hgvs_proc, hp, genomic_normalizer, am38, am37, lo,
+                                      debug=args.debug)
+        _write_rows_to_db(conn, args.schema, processed_rows)
+        conn.close()
+    else:
+        with open(args.input, 'r') as input_fp:
+            reader = csv.DictReader(input_fp, delimiter='\t')
+            new_fieldnames = [
+                PYHGVS_GENOMIC_COORDINATE_38_COL, PYHGVS_CDNA_COL, PYHGVS_GENOMIC_COORDINATE_37_COL,
+                PYHGVS_HG37_START_COL, PYHGVS_HG37_END_COL, PYHGVS_PROTEIN_COL, CA_ID_COL,
+                GENOMIC_HGVS_HG38_COL, GENOMIC_HGVS_HG37_COL,
+            ]
+            rows = list(reader)
+            output_fieldnames = reader.fieldnames + new_fieldnames
 
-        hgvs_values = [
-            hgvs_proc.genomic_hgvs(row[CHR_COL], int(row[POS_COL]), row[REF_COL], row[ALT_COL])
-            for row in rows
-        ]
-
-        logging.info("Querying ClinGen Allele Registry for CA IDs")
-        ca_ids, grch37_hgvs, mane_select_cdna, mane_select_protein, transcript_allele_hgvs = \
-            _query_server([str(v) for v in hgvs_values], CLINGEN_ALLELE_REGISTRY_ENDPOINT)
-
-        for row, ca_id, grch37_hgvs_val, cdna, protein, synonyms in zip(
-                rows, ca_ids, grch37_hgvs, mane_select_cdna, mane_select_protein, transcript_allele_hgvs):
-            row[CA_ID_COL] = ca_id
-            row[PYHGVS_GENOMIC_COORDINATE_37_COL] = grch37_hgvs_val
-            row[PYHGVS_CDNA_COL] = cdna
-            row[PYHGVS_PROTEIN_COL] = protein
-            row[SYNONYMS_COL] = _filter_and_extend_synonyms(row[SYNONYMS_COL], synonyms)
-
-        processed_rows = []
-        for row, genomic_hgvs_38 in zip(rows, hgvs_values):
-            row[PYHGVS_GENOMIC_COORDINATE_38_COL] = genomic_hgvs_38
-            if args.debug:
-                print("working on variant", row[PYHGVS_GENOMIC_COORDINATE_38_COL], "reference",
-                      row[REFERENCE_SEQUENCE_COL], "cDNA", row[HGVS_CDNA_COL],
-                      "allele registry", row[CA_ID_COL])
-            this_gene = row[GENE_SYMBOL_COL]
-            if row[PYHGVS_GENOMIC_COORDINATE_37_COL] is None:
-                (row[PYHGVS_CDNA_COL], row[PYHGVS_GENOMIC_COORDINATE_37_COL], row[PYHGVS_PROTEIN_COL]) = \
-                    map_via_seqrepo(row['Gene_Symbol'], genomic_hgvs_38,
-                                    mane_transcript_dict[this_gene],
-                                    genomic_normalizer, hgvs_proc,
-                                    am38, am37, str(chrom_ac_dict[this_gene]),
-                                    debug=args.debug)
-                if args.debug:
-                    print("Updating synonyms via SeqRepo")
-                new_synonyms = get_synonyms(
-                    this_gene, genomic_hgvs_38, syn_ac_dict[this_gene], hdp,
-                    hp, genomic_normalizer, am38)
-                row[SYNONYMS_COL] = _merge_and_clean_synonyms(row, new_synonyms)
-            if row[PYHGVS_GENOMIC_COORDINATE_37_COL]:
-                (row[PYHGVS_HG37_START_COL], row[PYHGVS_HG37_END_COL]) = genomic_hgvs_to_coords(row[PYHGVS_GENOMIC_COORDINATE_37_COL], hp)
-            else:
-                row[PYHGVS_GENOMIC_COORDINATE_37_COL] = liftover_hgvs_38_to_37(
-                    row[PYHGVS_GENOMIC_COORDINATE_38_COL], hp, hgvs_proc.contig_maps, lo)
-                if row[PYHGVS_GENOMIC_COORDINATE_37_COL]:
-                    (row[PYHGVS_HG37_START_COL], row[PYHGVS_HG37_END_COL]) = genomic_hgvs_to_coords(row[PYHGVS_GENOMIC_COORDINATE_37_COL], hp)
-                else:
-                    row[PYHGVS_HG37_START_COL] = None
-                    row[PYHGVS_HG37_END_COL] = None
-            ensure_mane_transcript_cdna(row, mane_transcript_dict[this_gene], hgvs_proc, genomic_normalizer,
-                                        am38, debug=args.debug)
-            row[GENOMIC_HGVS_HG38_COL] = row[PYHGVS_GENOMIC_COORDINATE_38_COL]
-            row[GENOMIC_HGVS_HG37_COL] = row[PYHGVS_GENOMIC_COORDINATE_37_COL]
-            processed_rows.append(row)
+        processed_rows = process_rows(rows, mane_transcript_dict, syn_ac_dict, chrom_ac_dict,
+                                      hgvs_proc, hp, genomic_normalizer, am38, am37, lo,
+                                      debug=args.debug)
 
         with open(args.output, mode='w') as output_fp:
             writer = csv.DictWriter(output_fp, fieldnames=output_fieldnames, delimiter='\t')
             writer.writeheader()
             writer.writerows(processed_rows)
+
 
 if __name__ == "__main__":
     main()
