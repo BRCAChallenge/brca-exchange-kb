@@ -285,6 +285,81 @@ class AnalyzePopfreqLegacy(VCFAssemblyTask):
 
 
 ###############################################
+#              HEREDICLASSIFY                 #
+###############################################
+
+# HerediClassify (github.com/akatzke/HerediClassify) is an external GPL-3.0
+# tool run from its own clone + venv; see variant_analysis/herediclassify/SETUP.md.
+# Results go to the filesystem only, so these tasks are not part of the
+# top-level VariantAnalysis DB pipeline.
+
+class HerediClassifyTaskBase(VCFAssemblyTask):
+    """Shared parameters for the two HerediClassify stages."""
+
+    herediclassify_run_dir = luigi.Parameter(
+        default='',
+        description='Run directory for input/output JSONs; defaults to '
+                    '<output-dir>/herediclassify_runs/<date>')
+
+    @property
+    def run_dir(self):
+        if self.herediclassify_run_dir:
+            return self.herediclassify_run_dir
+        return os.path.join(self.cfg.output_dir, 'herediclassify_runs',
+                            str(self.cfg.date))
+
+
+@requires(AnalyzeVEP, AnalyzeBayesDel, AnalyzeSpliceAI)
+class ExportHerediClassifyInput(HerediClassifyTaskBase):
+    """Export per-variant HerediClassify input JSONs from the database."""
+
+    vep_server_url = luigi.Parameter(
+        default='http://localhost:8888',
+        description='Base URL of the local VEP REST server')
+
+    def output(self):
+        return luigi.LocalTarget(os.path.join(self.run_dir, 'export_input.done'))
+
+    def run(self):
+        script = os.path.join(_pipeline_dir, 'variant_analysis',
+                              'export_herediclassify_input.py')
+        args = [sys.executable, script,
+                '--vep-url', self.vep_server_url,
+                '--out-dir', self.run_dir,
+                '--schema', self.cfg.db_schema]
+        self._run_process_with_pipeline_path(args)
+        with open(self.output().path, 'w') as f:
+            f.write('done\n')
+
+
+@requires(ExportHerediClassifyInput)
+class RunHerediClassify(HerediClassifyTaskBase):
+    """Classify the exported variants with HerediClassify (filesystem output only)."""
+
+    herediclassify_dir = luigi.Parameter(
+        default='/data/new_schema/herediclassify_tool/HerediClassify',
+        description='Path to the HerediClassify git clone')
+    herediclassify_python = luigi.Parameter(
+        default='/data/new_schema/herediclassify_tool/HerediClassify/venv/bin/python',
+        description="Python interpreter of HerediClassify's own venv")
+
+    def output(self):
+        return luigi.LocalTarget(os.path.join(self.run_dir,
+                                              'herediclassify_summary.tsv'))
+
+    def run(self):
+        script = os.path.join(_pipeline_dir, 'variant_analysis',
+                              'run_herediclassify.py')
+        # Runs under HerediClassify's venv, not the pipeline venv; the script
+        # imports nothing from this pipeline so it needs no pipeline PYTHONPATH.
+        pipeline_utils.run_process([
+            self.herediclassify_python, script,
+            '--herediclassify-dir', self.herediclassify_dir,
+            '--run-dir', self.run_dir,
+        ])
+
+
+###############################################
 #               TOP-LEVEL TASK                #
 ###############################################
 
