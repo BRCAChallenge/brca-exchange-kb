@@ -166,7 +166,14 @@ def variant_papers(request):
         # year of 0000 means year could not be found during a crawl
         if variantpaper.Paper.Year == '0000':
             variantpaper.Paper.Year = "Unknown"
-    variantpapers = [dict(model_to_dict(vp.Paper), **{"mentions": vp.mentions, "points": vp.points}) for vp in variantpapers]
+    variantpapers = [{
+        "title": vp.Paper.Title,
+        "authors": vp.Paper.Author,
+        "journal": vp.Paper.Journal,
+        "year": vp.Paper.Year,
+        "pmid": vp.Paper.PMID,
+        "mentions": vp.mentions,
+    } for vp in variantpapers]
     response = JsonResponse({"data": variantpapers}, safe=False)
     response['Access-Control-Allow-Origin'] = '*'
     return response
