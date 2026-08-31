@@ -34,6 +34,16 @@ class DataRelease(models.Model):
     created = models.DateTimeField(auto_now_add=True, null=True)
     name = models.PositiveIntegerField()
 
+    # Static, stored release-over-release stats. The old schema computed these
+    # live from a per-release Variant history with a Change_Type FK, neither of
+    # which exist in the finalized schema (Variant is current-state-only), so
+    # these are plain columns instead. variants_classified is a placeholder
+    # (always 0) until classification-change tracking is designed.
+    variants_added = models.PositiveIntegerField(default=0)
+    variants_modified = models.PositiveIntegerField(default=0)
+    variants_deleted = models.PositiveIntegerField(default=0)
+    variants_classified = models.PositiveIntegerField(default=0)
+
     class Meta:
         db_table = "data_release"
         ordering = ['date']
