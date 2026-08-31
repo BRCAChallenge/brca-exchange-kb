@@ -13,7 +13,7 @@ Output file: tab-separated rows for every column difference in shared rows:
 
 Use --pk to override the primary key used for matching rows (useful when the
 table's actual PK is a surrogate id that differs across schemas, e.g. report_gnomad).
-Example: --pk VRS_Digest_id version data_type
+Example: --pk VRS_Digest version data_type
 
 Use --omit-columns to exclude columns from the diff (e.g. a surrogate id column
 that legitimately differs across schemas and would otherwise show up as noise).

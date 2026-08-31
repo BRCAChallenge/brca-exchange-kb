@@ -300,8 +300,11 @@ def map_via_seqrepo(this_gene, genomic_hgvs_38, default_cdna, normalizer,
                     chrom, debug=True):
     genomic_hgvs_38_obj = hgvs_proc.hgvs_parser.parse(genomic_hgvs_38)
     try:
-        tmp_cdna_hgvs = normalizer.normalize(assembly_mapper_38.g_to_c(genomic_hgvs_38_obj,
-                                                                       default_cdna))
+        # Normalize the genomic variant first, then translate; this avoids
+        # applying cDNA-level normalization to intronic positions (unsupported
+        # by the HGVS library).
+        normalized_g = normalizer.normalize(genomic_hgvs_38_obj)
+        tmp_cdna_hgvs = assembly_mapper_38.g_to_c(normalized_g, default_cdna)
     except (hgvs.exceptions.HGVSInvalidIntervalError,
             hgvs.exceptions.HGVSUnsupportedOperationError):
         if debug:
@@ -325,23 +328,43 @@ def map_via_seqrepo(this_gene, genomic_hgvs_38, default_cdna, normalizer,
 
 
 def ensure_mane_transcript_cdna(row, mane_transcript, hgvs_proc, normalizer, am38, debug=False):
-    """If the cDNA in row does not use the MANE transcript, remap using SeqRepo."""
-    if not row[PYHGVS_CDNA_COL] or not row[PYHGVS_CDNA_COL].startswith(mane_transcript) or row[REFERENCE_SEQUENCE_COL] is not mane_transcript:
-        genomic_hgvs_38_obj = hgvs_proc.hgvs_parser.parse(str(row[PYHGVS_GENOMIC_COORDINATE_38_COL]))
-        try:
-            cdna_hgvs = normalizer.normalize(am38.g_to_c(genomic_hgvs_38_obj, mane_transcript))
-            row[PYHGVS_CDNA_COL] = str(cdna_hgvs)
-            parts = row[PYHGVS_CDNA_COL].split(':')
-            row[REFERENCE_SEQUENCE_COL] = parts[0]
-            row[HGVS_CDNA_COL] = parts[1]
-        except (hgvs.exceptions.HGVSInvalidIntervalError,
-                hgvs.exceptions.HGVSUnsupportedOperationError,
-                hgvs.exceptions.HGVSDataNotAvailableError):
-            logging.warning(
-                f"Could not remap {row[PYHGVS_GENOMIC_COORDINATE_38_COL]} to MANE transcript {mane_transcript}")
-            row[REFERENCE_SEQUENCE_COL] = mane_transcript
-            row[HGVS_CDNA_COL] = "-"
-            row[PYHGVS_CDNA_COL] = "-"
+    """Ensure row[HGVS_CDNA_COL] is on the MANE transcript.
+
+    If ClinGen already returned a cDNA on the MANE transcript, extract it directly.
+    Otherwise try SeqRepo. If SeqRepo fails, preserve any value already loaded from
+    the source VCF; only fall back to '-' when there was nothing there to begin with.
+    """
+    pyhgvs_cdna = row[PYHGVS_CDNA_COL]
+
+    if pyhgvs_cdna and pyhgvs_cdna.startswith(mane_transcript):
+        # ClinGen returned the MANE transcript cDNA — accept it directly.
+        parts = pyhgvs_cdna.split(':')
+        row[REFERENCE_SEQUENCE_COL] = parts[0]
+        row[HGVS_CDNA_COL] = parts[1]
+        return
+
+    # No MANE cDNA from ClinGen (absent or on a different transcript) — try SeqRepo.
+    # Normalize the genomic variant first, then translate; this avoids applying
+    # cDNA-level normalization to intronic positions (unsupported by the HGVS library).
+    genomic_hgvs_38_obj = hgvs_proc.hgvs_parser.parse(str(row[PYHGVS_GENOMIC_COORDINATE_38_COL]))
+    try:
+        normalized_g = normalizer.normalize(genomic_hgvs_38_obj)
+        cdna_hgvs = am38.g_to_c(normalized_g, mane_transcript)
+        row[PYHGVS_CDNA_COL] = str(cdna_hgvs)
+        parts = row[PYHGVS_CDNA_COL].split(':')
+        row[REFERENCE_SEQUENCE_COL] = parts[0]
+        row[HGVS_CDNA_COL] = parts[1]
+    except (hgvs.exceptions.HGVSInvalidIntervalError,
+            hgvs.exceptions.HGVSUnsupportedOperationError,
+            hgvs.exceptions.HGVSDataNotAvailableError):
+        logging.warning(
+            f"Could not remap {row[PYHGVS_GENOMIC_COORDINATE_38_COL]} to MANE transcript {mane_transcript}")
+        row[REFERENCE_SEQUENCE_COL] = mane_transcript
+        # Preserve any HGVS_cDNA already loaded from the source VCF; only
+        # fall back to '-' if there was nothing there to begin with.
+        if not row[HGVS_CDNA_COL] or row[HGVS_CDNA_COL] == '-':
+            row[HGVS_CDNA_COL] = '-'
+        row[PYHGVS_CDNA_COL] = '-'
 
 
 def process_rows(rows, mane_transcript_dict, syn_ac_dict, chrom_ac_dict,
@@ -454,7 +477,7 @@ def _load_rows_from_db(conn, schema):
                 COALESCE(v."Synonyms",   '-') AS "Synonyms"
             FROM {schema}.variant v
             JOIN {schema}.variant_genomic_coordinates gc
-              ON gc."VRS_Digest_id" = v."VRS_Digest"
+              ON gc."VRS_Digest" = v."VRS_Digest"
              AND gc.assembly = 'GRCh38'
             WHERE gc.chr IS NOT NULL AND gc.pos IS NOT NULL
               AND gc.ref IS NOT NULL AND gc.alt IS NOT NULL
@@ -495,9 +518,9 @@ def _write_rows_to_db(conn, schema, processed_rows):
                 # builds, which is why hg37 start/end are computed separately.
                 cur.execute(f"""
                     INSERT INTO {schema}.variant_genomic_coordinates
-                        ("VRS_Digest_id", assembly, hgvs, chr, pos, end_pos, ref, alt)
+                        ("VRS_Digest", assembly, hgvs, chr, pos, end_pos, ref, alt)
                     VALUES (%s, 'GRCh37', %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT ("VRS_Digest_id", assembly) DO UPDATE
+                    ON CONFLICT ("VRS_Digest", assembly) DO UPDATE
                         SET hgvs = EXCLUDED.hgvs
                 """, [
                     digest, hg37_hgvs,

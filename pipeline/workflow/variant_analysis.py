@@ -8,7 +8,7 @@ luigi.auto_namespace(scope=__name__)
 
 from workflow.pipeline_common import PipelineParams
 from workflow import pipeline_utils
-from workflow.variant_assembly import VCFAssembly, VCFAssemblyTask
+from workflow.variant_assembly import VCFAssembly, VCFAssemblyTask, DownloadGnomADCoverage
 
 _pipeline_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -19,7 +19,8 @@ _pipeline_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 @requires(VCFAssembly)
 class AnalyzeVEP(VCFAssemblyTask):
-    """Run VEP on all variants and populate analysis_vep.variant_class."""
+    """Run VEP on all variants and populate analysis_vep (variant_class, variant_type,
+    consequences, hgvsp, ptc_genomic_pos)."""
 
     vep_server_url = luigi.Parameter(
         default='http://localhost:8888',
@@ -188,37 +189,37 @@ class LCRBed(luigi.ExternalTask):
         return luigi.LocalTarget(self.lcr_path)
 
 
-class CoverageParquet(luigi.ExternalTask):
-    """gnomAD v4.1 joint (exome+genome) coverage parquet."""
+@requires(DownloadGnomADCoverage)
+class CoverageParquet(VCFAssemblyTask):
+    """gnomAD v4.1 joint (exome+genome) coverage parquet.
 
-    coverage_path = luigi.Parameter(
-        default=os.path.join(_RESOURCES_DIR, 'gnomADv4.1.coverage.joint.parquet'),
-        description='Path to the gnomAD v4.1 joint coverage parquet file')
-
-    def output(self):
-        return luigi.LocalTarget(self.coverage_path)
-
-
-class CoverageParquetV4Exome(luigi.ExternalTask):
-    """gnomAD v4.1 exome coverage parquet."""
-
-    exome_coverage_path = luigi.Parameter(
-        default=os.path.join(_RESOURCES_DIR, 'gnomADv4.1.coverage.exome.parquet'),
-        description='Path to the gnomAD v4.1 exome coverage parquet file')
+    Requires DownloadGnomADCoverage so that when gnomAD coverage estimation
+    is enabled (--DownloadGnomADCoverage-enabled true), this task waits for
+    the freshly-generated parquet rather than racing it; when disabled (the
+    default), DownloadGnomADCoverage is already complete against the
+    existing resources-directory file and this is a no-op pass-through.
+    """
 
     def output(self):
-        return luigi.LocalTarget(self.exome_coverage_path)
+        return self.input()['joint']
 
 
-class CoverageParquetV3Genome(luigi.ExternalTask):
-    """gnomAD v3.1 genome coverage parquet."""
-
-    genome_coverage_path = luigi.Parameter(
-        default=os.path.join(_RESOURCES_DIR, 'gnomADv3.1.coverage.genome.parquet'),
-        description='Path to the gnomAD v3.1 genome coverage parquet file')
+@requires(DownloadGnomADCoverage)
+class CoverageParquetV4Exome(VCFAssemblyTask):
+    """gnomAD v4.1 exome coverage parquet. See CoverageParquet for why this requires
+    DownloadGnomADCoverage rather than reading the resources file directly."""
 
     def output(self):
-        return luigi.LocalTarget(self.genome_coverage_path)
+        return self.input()['exome']
+
+
+@requires(DownloadGnomADCoverage)
+class CoverageParquetV3Genome(VCFAssemblyTask):
+    """gnomAD v3.1 genome coverage parquet. See CoverageParquet for why this requires
+    DownloadGnomADCoverage rather than reading the resources file directly."""
+
+    def output(self):
+        return self.input()['genome']
 
 
 @requires(VCFAssembly, CoverageParquet, CoverageParquetV4Exome, CoverageParquetV3Genome, LCRBed)

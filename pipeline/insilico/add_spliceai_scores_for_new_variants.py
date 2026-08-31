@@ -80,7 +80,7 @@ def run_spliceai(unscored_vcf, newly_scored_vcf,
                     "-R", genome_fa_file, "-A", genome_name, "-D", depth]
     if debug:
         print("About to execute", spliceai_cmd)
-    subprocess.run(spliceai_cmd)
+    subprocess.run(spliceai_cmd, check=True)
 
 
 def merge_scored_vcf(scored_vcf, newly_scored_vcf, output_vcf, debug=True):
@@ -88,7 +88,7 @@ def merge_scored_vcf(scored_vcf, newly_scored_vcf, output_vcf, debug=True):
     if debug:
         print("About to run", merge_cmd)
     with open(output_vcf, "w") as fp:
-        subprocess.run(merge_cmd, stdout=fp)
+        subprocess.run(merge_cmd, stdout=fp, check=True)
     
 def main():
     args = parse_args()
@@ -128,10 +128,17 @@ def main():
             # variants have not yet been scored
             shutil.copy2(args.output_vcf, scored_vcf)
     #
+    # scored_vcf holds every variant's score at this point -- unchanged from
+    # the previous release if nothing needed scoring, or the last merged
+    # result otherwise. Either way, it's the final output.
+    shutil.copy2(scored_vcf, args.output_vcf)
+    #
     # Cleanup
     os.remove(scored_vcf)
-    os.remove(unscored_vcf)
-    os.remove(newly_scored_vcf)
+    if os.path.exists(unscored_vcf):
+        os.remove(unscored_vcf)
+    if os.path.exists(newly_scored_vcf):
+        os.remove(newly_scored_vcf)
             
             
 if __name__ == "__main__":

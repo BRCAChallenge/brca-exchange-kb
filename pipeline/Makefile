@@ -47,6 +47,24 @@ ifneq ($(strip $(VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF)),)
 VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF_FLAG = --previous-spliceai-vcf $(VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF)
 endif
 
+# Whether workflow.variant_assembly.DownloadGnomADCoverage should recompute the gnomAD
+# coverage parquets from raw gnomAD coverage data instead of downloading the pre-built
+# parquets from brcaexchange.org (the default -- fast, and normally a no-op since
+# download-resources already staged the same files into RESOURCES_DIR). Override from
+# generate_release.py (--run-gnomad-coverage-estimation) or directly as
+# DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW=true.
+#
+# DownloadGnomADCoverage is a plain luigi.Task (not a luigi.Config like
+# PipelineParams), and it lives in workflow.variant_assembly while the root
+# task runs out of workflow.variant_analysis -- so luigi only recognizes its
+# CLI flag in the fully module-qualified form below, and since compute_new is
+# a BoolParameter with implicit (store_true) parsing, the flag must be passed
+# bare (no value) and only when true.
+DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW ?= false
+ifeq ($(strip $(DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW)),true)
+DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW_FLAG = --workflow.variant-assembly.DownloadGnomADCoverage-compute-new
+endif
+
 LUIGI_ROOT_TASK = $(VCF_ANALYSIS_ROOT_TASK)
 LUIGI_WORKERS = 8
 LUIGI_LOG_LEVEL ?= WARNING
@@ -71,12 +89,25 @@ LOCAL_PIPELINE_ENV = \
 	UTA_DB_URL=$(VCF_ASSEMBLY_UTA_DB_URL) \
 	PYTHONPATH=$(PYTHONPATH_PIPELINE)
 
+# --gene-config below is DownloadGnomADCoverage's own gene_config parameter (distinct
+# from --PipelineParams-gene-config-path above), inherited via @requires into
+# ProvideGnomADv41JointVCF/ProvideGnomADv41ExomeVCF/VRSAnnotateGnomADv41 -- without it
+# those tasks silently default to gene_config_brca_only.txt and never pick up a
+# per-release gene set (verified: this silently dropped PALB2 from gnomAD v4.1 data on
+# the palb2 release, since the joint/exome VCFs came back with zero chr16 rows).
+# Unlike DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW_FLAG above, this must be passed at the ROOT
+# task (unprefixed, not module-qualified as --DownloadGnomADCoverage-gene-config) --
+# only the root-level flag actually threads a value down through the whole @requires
+# chain, since each level's auto-generated requires() clones its OWN parameter value
+# (defaulting per-class otherwise) rather than reading the leaf class's CLI flag directly.
 PIPELINE_ARGS := \
 	--PipelineParams-gene-config-path $(GENE_CONFIG_PIPELINE) \
 	--PipelineParams-seq-repo-dir $(VCF_ASSEMBLY_SEQ_REPO_DIR) \
 	--PipelineParams-file-parent-dir $(VCF_ASSEMBLY_OUT_DIR) \
 	--PipelineParams-output-dir $(VCF_ASSEMBLY_OUT_DIR) \
 	--PipelineParams-db-schema $(PIPELINE_DB_SCHEMA) \
+	--gene-config $(GENE_CONFIG_PIPELINE) \
+	$(DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW_FLAG) \
 	--workers $(LUIGI_WORKERS)
 
 RUN_TASK_CMD = $(LOCAL_PIPELINE_ENV) python -m luigi --module $(VCF_ANALYSIS_MODULE)
@@ -172,6 +203,15 @@ run-pipeline: ## Run the current luigi pipeline locally (no Docker); output logg
 	[ -d $(LOG_DIR)/tmp/luigi_venv ] || python -m venv $(LOG_DIR)/tmp/luigi_venv
 	. $(LOG_DIR)/tmp/luigi_venv/bin/activate
 	pip install -q -r requirements.txt
+	# spliceai 1.3.1 (latest) uses pkg_resources which was removed from setuptools 71+.
+	# Same patch as pipeline/docker/Dockerfile: fall back to importlib when pkg_resources
+	# is missing. find_spec (not import) locates the package without executing its
+	# pkg_resources-dependent __init__.py, so this works whether or not the venv already
+	# has pkg_resources; the ^-anchored regex only matches the original unindented import
+	# line, so re-running this on an already-patched file is a no-op instead of corrupting it.
+	SPLICEAI_DIR=$$(python -c "import importlib.util, os; print(os.path.dirname(importlib.util.find_spec('spliceai').origin))")
+	python3 -c "import pathlib, re; p = pathlib.Path('$$SPLICEAI_DIR/__init__.py'); src = p.read_text(); src = re.sub(r'^from pkg_resources import get_distribution', 'try:\n    from pkg_resources import get_distribution\nexcept ImportError:\n    from importlib.metadata import distribution as get_distribution', src, count=1, flags=re.MULTILINE); p.write_text(src)"
+	python3 -c "import pathlib, re; p = pathlib.Path('$$SPLICEAI_DIR/utils.py'); src = p.read_text(); src = re.sub(r'^from pkg_resources import resource_filename', 'try:\n    from pkg_resources import resource_filename\nexcept ImportError:\n    import importlib.resources\n    def resource_filename(package, resource):\n        return str(importlib.resources.files(package).joinpath(resource))', src, count=1, flags=re.MULTILINE); p.write_text(src)"
 	PATH=$(LOG_DIR)/tmp/luigi_venv/bin:$(HOME)/bin:$(PATH) \
 	$(LOCAL_PIPELINE_ENV) \
 	python -m luigi --module $(VCF_ANALYSIS_MODULE) $(VCF_ANALYSIS_ROOT_TASK) \

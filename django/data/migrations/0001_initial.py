@@ -85,7 +85,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='AnalysisBayesDel',
             fields=[
-                ('VRS_Digest', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, primary_key=True, related_name='bayesdel_analysis', serialize=False, to='data.variant')),
+                ('VRS_Digest', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, primary_key=True, related_name='bayesdel_analysis', serialize=False, to='data.variant', db_column='VRS_Digest')),
                 ('BayesDel_nsfp33a_noAF', models.TextField(null=True)),
                 ('VA_Spec', models.JSONField(blank=True, null=True)),
             ],
@@ -96,7 +96,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='AnalysisPriors',
             fields=[
-                ('VRS_Digest', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, primary_key=True, related_name='priors_analysis', serialize=False, to='data.variant')),
+                ('VRS_Digest', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, primary_key=True, related_name='priors_analysis', serialize=False, to='data.variant', db_column='VRS_Digest')),
                 ('varLoc', models.TextField(null=True)),
                 ('applicablePrior', models.TextField(null=True)),
                 ('proteinPrior', models.TextField(null=True)),
@@ -140,7 +140,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='AnalysisSpliceAI',
             fields=[
-                ('VRS_Digest', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, primary_key=True, related_name='spliceai_analysis', serialize=False, to='data.variant')),
+                ('VRS_Digest', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, primary_key=True, related_name='spliceai_analysis', serialize=False, to='data.variant', db_column='VRS_Digest')),
                 ('DS_AG', models.TextField(null=True)),
                 ('DS_AL', models.TextField(null=True)),
                 ('DS_DG', models.TextField(null=True)),
@@ -159,7 +159,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='AnalysisVEP',
             fields=[
-                ('VRS_Digest', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, primary_key=True, related_name='vep_analysis', serialize=False, to='data.variant')),
+                ('VRS_Digest', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, primary_key=True, related_name='vep_analysis', serialize=False, to='data.variant', db_column='VRS_Digest')),
                 ('variant_class', models.TextField(null=True)),
                 ('variant_type', models.TextField(null=True)),
                 ('VA_Spec', models.JSONField(blank=True, null=True)),
@@ -171,7 +171,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='Variant_in_ClinVar',
             fields=[
-                ('VRS_Digest', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, primary_key=True, related_name='clinvar_data', serialize=False, to='data.variant')),
+                ('VRS_Digest', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, primary_key=True, related_name='clinvar_data', serialize=False, to='data.variant', db_column='VRS_Digest')),
                 ('Source_URL', models.TextField()),
             ],
             options={
@@ -181,7 +181,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='Variant_in_ExLOVD',
             fields=[
-                ('VRS_Digest', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, primary_key=True, related_name='exlovd_data', serialize=False, to='data.variant')),
+                ('VRS_Digest', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, primary_key=True, related_name='exlovd_data', serialize=False, to='data.variant', db_column='VRS_Digest')),
                 ('Source_URL', models.TextField(null=True)),
                 ('Exon', models.TextField(null=True)),
                 ('DNA_Change', models.TextField(null=True)),
@@ -207,7 +207,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='Variant_in_GnomAD',
             fields=[
-                ('VRS_Digest', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, primary_key=True, related_name='gnomad_data', serialize=False, to='data.variant')),
+                ('VRS_Digest', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, primary_key=True, related_name='gnomad_data', serialize=False, to='data.variant', db_column='VRS_Digest')),
                 ('Source_URL', models.TextField(default='-', null=True)),
             ],
             options={
@@ -217,7 +217,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='Variant_in_LOVD',
             fields=[
-                ('VRS_Digest', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, primary_key=True, related_name='lovd_data', serialize=False, to='data.variant')),
+                ('VRS_Digest', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, primary_key=True, related_name='lovd_data', serialize=False, to='data.variant', db_column='VRS_Digest')),
                 ('Source_URL', models.TextField()),
                 ('Variant_haplotype', models.TextField()),
             ],
@@ -228,7 +228,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='Variant_in_Other',
             fields=[
-                ('VRS_Digest', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, primary_key=True, related_name='other_data', serialize=False, to='data.variant')),
+                ('VRS_Digest', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, primary_key=True, related_name='other_data', serialize=False, to='data.variant', db_column='VRS_Digest')),
                 ('data_type', models.TextField(null=True)),
                 ('variant_data', models.JSONField(blank=True, null=True)),
             ],
@@ -253,7 +253,7 @@ class Migration(migrations.Migration):
                 ('Allele_origin', models.TextField()),
                 ('ClinVarAccession', models.TextField()),
                 ('Pathogenicity', models.TextField()),
-                ('VRS_Digest', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='enigma_reports', to='data.variant')),
+                ('VRS_Digest', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='enigma_reports', to='data.variant', db_column='VRS_Digest')),
             ],
             options={
                 'db_table': 'variant_enigma',
@@ -277,7 +277,7 @@ class Migration(migrations.Migration):
                 ('Condition_Type', models.TextField(default='-')),
                 ('Condition_Value', models.TextField(default='-')),
                 ('Condition_DB_ID', models.TextField(default='-')),
-                ('VRS_Digest', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='clinvar_reports', to='data.variant_in_clinvar')),
+                ('VRS_Digest', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='clinvar_reports', to='data.variant_in_clinvar', db_column='VRS_Digest')),
             ],
             options={
                 'db_table': 'report_clinvar',
@@ -300,7 +300,7 @@ class Migration(migrations.Migration):
                 ('Remarks', models.TextField(null=True)),
                 ('Classification', models.TextField(null=True)),
                 ('Submission_ID', models.TextField(db_index=True, default='-')),
-                ('VRS_Digest', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='lovd_reports', to='data.variant_in_lovd')),
+                ('VRS_Digest', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='lovd_reports', to='data.variant_in_lovd', db_column='VRS_Digest')),
             ],
             options={
                 'db_table': 'report_lovd',
@@ -316,7 +316,7 @@ class Migration(migrations.Migration):
                 ('gnomad_version', models.TextField(null=True)),
                 ('gnomad_data_type', models.TextField(null=True)),
                 ('VA_Spec', models.JSONField(blank=True, null=True)),
-                ('VRS_Digest', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='provisional_evidence_codes', to='data.variant')),
+                ('VRS_Digest', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='provisional_evidence_codes', to='data.variant', db_column='VRS_Digest')),
             ],
             options={
                 'db_table': 'analysis_provisional_evidence_codes',
@@ -334,7 +334,7 @@ class Migration(migrations.Migration):
                 ('end_pos', models.TextField()),
                 ('ref', models.TextField()),
                 ('alt', models.TextField()),
-                ('VRS_Digest', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='genomic_coordinates', to='data.variant')),
+                ('VRS_Digest', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='genomic_coordinates', to='data.variant', db_column='VRS_Digest')),
             ],
             options={
                 'db_table': 'variant_genomic_coordinates',
@@ -348,7 +348,7 @@ class Migration(migrations.Migration):
                 ('mentions', django.contrib.postgres.fields.ArrayField(base_field=models.TextField(), size=None)),
                 ('variant_mentioned_as', django.contrib.postgres.fields.ArrayField(base_field=models.TextField(), size=None)),
                 ('Paper', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='data.paper')),
-                ('VRS_Digest', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='data.variant')),
+                ('VRS_Digest', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='data.variant', db_column='VRS_Digest')),
             ],
             options={
                 'db_table': 'data_variantpaper',
@@ -370,7 +370,7 @@ class Migration(migrations.Migration):
                 ('faf95_popmax', models.TextField(default='-', null=True)),
                 ('faf95_popmax_population', models.TextField(default='-', null=True)),
                 ('populations', models.JSONField(blank=True, null=True)),
-                ('VRS_Digest', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='gnomad_reports', to='data.variant_in_gnomad')),
+                ('VRS_Digest', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='gnomad_reports', to='data.variant_in_gnomad', db_column='VRS_Digest')),
             ],
             options={
                 'db_table': 'report_gnomad',
