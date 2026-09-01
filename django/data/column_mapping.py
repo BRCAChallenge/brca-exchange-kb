@@ -18,12 +18,12 @@ from django.db.models.fields.json import KeyTextTransform
 from .models import Report_in_ClinVar, Report_in_LOVD, Report_in_GnomAD, Genomic_Coordinates
 
 
-def _genomic_coordinate_subquery(assembly):
+def _genomic_coordinate_subquery(assembly, field='hgvs'):
     def build(outer_ref):
         return Subquery(
             Genomic_Coordinates.objects
             .filter(VRS_Digest=OuterRef(outer_ref), assembly=assembly)
-            .values('hgvs')[:1]
+            .values(field)[:1]
         )
     return ('subquery', build)
 
@@ -143,6 +143,22 @@ for suf in ['DP_AG', 'DP_AL', 'DP_DG', 'DP_DL', 'DS_AG', 'DS_AL', 'DS_DG', 'DS_D
 # filter Subquery pattern as GnomAD, not a plain direct traversal.
 _RENAMES['Genomic_Coordinate_hg37'] = _genomic_coordinate_subquery('GRCh37')
 _RENAMES['Genomic_Coordinate_hg38'] = _genomic_coordinate_subquery('GRCh38')
+
+# GRCh38 ref/alt/position, used by the splice-site diagram (Splicing.js).
+# Pos and Hg38_Start are the same value under two old names (the old
+# frontend used both inconsistently) - end_pos is currently null for all
+# locally-restored data (not yet backfilled by the pipeline), so the
+# diagram's overlap detection will be degraded until that lands, but it
+# won't crash.
+_RENAMES['Ref'] = _genomic_coordinate_subquery('GRCh38', field='ref')
+_RENAMES['Alt'] = _genomic_coordinate_subquery('GRCh38', field='alt')
+_RENAMES['Pos'] = _genomic_coordinate_subquery('GRCh38', field='pos')
+_RENAMES['Hg38_Start'] = _genomic_coordinate_subquery('GRCh38', field='pos')
+_RENAMES['Hg38_End'] = _genomic_coordinate_subquery('GRCh38', field='end_pos')
+
+# GRCh37 chromosome/position, used by the "Beacons" external link.
+_RENAMES['Chr'] = _genomic_coordinate_subquery('GRCh37', field='chr')
+_RENAMES['Hg37_Start'] = _genomic_coordinate_subquery('GRCh37', field='pos')
 
 # ENIGMA functional-assay results: single JSONField on Variant_in_Other,
 # data_type='functional_assay_results'. A few keys were renamed from the old
