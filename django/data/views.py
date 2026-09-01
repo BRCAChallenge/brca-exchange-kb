@@ -16,6 +16,7 @@ from .models import (
     Variant, DataRelease,
     Variant_in_Paper, Paper
 )
+from .column_mapping import resolve_columns
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
 
@@ -210,7 +211,10 @@ def index(request):
     query = apply_sources(query, include, exclude)
 
     if filters:
-        query = apply_filters(query, filter_values, filters, quotes=quotes)
+        try:
+            query = apply_filters(query, filter_values, filters, quotes=quotes)
+        except ValueError as e:
+            return HttpResponseBadRequest(str(e))
 
     if search_term:
         query, synonyms_count = apply_search(query, search_term, quotes=quotes)
@@ -237,9 +241,13 @@ def index(request):
         return response
 
     elif format == 'json':
+        try:
+            query, values_fields = resolve_columns(query, column)
+        except KeyError as e:
+            return HttpResponseBadRequest('Unknown column(s): %s' % ', '.join(e.args[0]))
         count = query.count()
         query = select_page(query, page_size, page_num)
-        response = JsonResponse({'count': count, 'deletedCount': deleted_count, 'synonyms': synonyms_count, 'data': list(query.values(*column))})
+        response = JsonResponse({'count': count, 'deletedCount': deleted_count, 'synonyms': synonyms_count, 'data': list(query.values(*values_fields))})
         response['Access-Control-Allow-Origin'] = '*'
         return response
 
@@ -281,10 +289,15 @@ def apply_filters(query, filterValues, filters, quotes=''):
         if column == 'id':
             query = query.filter(**{column: value})
         else:
-            query = query.extra(
-                where=["\"{0}\" LIKE %s".format(column)],
-                params=["{0}{1}%{0}".format(quotes, value)]
-            )
+            # raw column names (e.g. from .extra()) can't reach related-table
+            # fields, so this resolves through the same old-schema column
+            # map index() uses, then does a plain (case-sensitive) prefix
+            # match - the same semantics the old raw LIKE 'value%' had.
+            try:
+                query, (resolved,) = resolve_columns(query, [column])
+            except KeyError as e:
+                raise ValueError('Unknown filter column(s): %s' % ', '.join(e.args[0]))
+            query = query.filter(**{'%s__startswith' % resolved: value})
     return query
 
 
@@ -425,7 +438,7 @@ def apply_search(query, search_term, quotes=''):
     # Generic searches (no prefixes)
     else:
         results = query.filter(
-            Q(Pathogenicity__icontains=search_term) |
+            Q(enigma_reports__Pathogenicity__icontains=search_term) |
             Q(Synonyms__icontains=search_term) |
             Q(Gene_Symbol__icontains=search_term) |
             Q(HGVS_cDNA__icontains=search_term) |
@@ -435,7 +448,7 @@ def apply_search(query, search_term, quotes=''):
         )
 
         non_synonyms = query.filter(
-            Q(Pathogenicity__icontains=search_term) |
+            Q(enigma_reports__Pathogenicity__icontains=search_term) |
             Q(Gene_Symbol__icontains=search_term) |
             Q(HGVS_cDNA__icontains=search_term) |
             Q(BIC_Nomenclature__icontains=search_term) |
