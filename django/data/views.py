@@ -520,32 +520,63 @@ def select_page(query, page_size, page_num):
     return query
 
 
+# (table, column_expr, extra_where_sql, split_delimiter) - mirrors the
+# fields the old words table was built from (see remove_last_release.py's
+# update_autocomplete_words, ported to this schema's related tables).
+# The old table was scoped per Data_Release; that concept doesn't exist for
+# this schema's current-state-only Variant, so suggestions are just computed
+# live across all current data instead - there's no "old release" view to
+# preserve. HGVS_cDNA additionally splits on ':' to separate the transcript
+# prefix from the variant notation, same as the old build.
+_WORD_DELIM = "[\\s|'\"]"
+_HGVS_CDNA_WORD_DELIM = "[\\s|:'\"]"
+_AUTOCOMPLETE_SOURCES = [
+    ('variant', '"Gene_Symbol"', '', _WORD_DELIM),
+    ('variant', '"Reference_Sequence"', '', _WORD_DELIM),
+    ('variant', '"HGVS_cDNA"', '', _HGVS_CDNA_WORD_DELIM),
+    ('variant', '"BIC_Nomenclature"', '', _WORD_DELIM),
+    ('variant', '"HGVS_Protein"', '', _WORD_DELIM),
+    ('variant_genomic_coordinates', '"hgvs"', "assembly = 'GRCh38'", _WORD_DELIM),
+    ('variant_genomic_coordinates', '"hgvs"', "assembly = 'GRCh37'", _WORD_DELIM),
+    ('variant_enigma', '"Clinical_significance"', '', _WORD_DELIM),
+]
+
+
 def autocomplete(request):
     cursor = connection.cursor()
     term = request.GET.get('term')
-
-    '''If a release is specified in the query, only return autocomplete
-    suggestions for specified release, otherwise default to suggestions
-    for the latest release'''
-    if 'release' in request.GET:
-        release = request.GET.get('release')
-    else:
-        cursor.execute("""SELECT MAX(id) FROM data_release""")
-        release = cursor.fetchone()[0]
-
     limit = int(request.GET.get('limit', 10))
 
+    # coarse containment pre-filter on the un-split source column, before the
+    # expensive regexp_split_to_table pass - any row with a word starting
+    # with `term` necessarily contains `term` somewhere, so this narrows the
+    # working set without changing the result. Delimiters are passed as bind
+    # params too, so no manual SQL-quote escaping is needed anywhere here.
+    contains_pattern = '%{}%'.format(term)
+    prefix_pattern = '{}%'.format(term)
+
+    selects = []
+    params = []
+    for table, column_expr, extra_where, delimiter in _AUTOCOMPLETE_SOURCES:
+        where = 'WHERE {} ILIKE %s'.format(column_expr)
+        if extra_where:
+            where += ' AND {}'.format(extra_where)
+        selects.append(
+            'SELECT regexp_split_to_table(lower({}), %s) AS word FROM {} {}'
+            .format(column_expr, table, where)
+        )
+        params.extend([delimiter, contains_pattern])
+
     cursor.execute(
-        """SELECT word FROM words
-        WHERE word LIKE %s
-        AND char_length(word) >= 3
-        AND release_id = %s
-        ORDER BY word""",
-        ["%s%%" % term, release])
+        'SELECT DISTINCT left(word, 300) AS word FROM ({}) AS words '
+        'WHERE word LIKE %s AND char_length(word) >= 3 '
+        'ORDER BY word LIMIT %s'.format(' UNION ALL '.join(selects)),
+        params + [prefix_pattern, limit],
+    )
 
     rows = cursor.fetchall()
 
-    response = JsonResponse({'suggestions': rows[:limit]})
+    response = JsonResponse({'suggestions': rows})
     response['Access-Control-Allow-Origin'] = '*'
     return response
 
