@@ -14,9 +14,13 @@ from django.http import JsonResponse, HttpResponse, HttpResponseBadRequest
 from django.views.decorators.gzip import gzip_page
 from .models import (
     Variant, DataRelease,
-    Variant_in_Paper, Paper
+    Variant_in_Paper, Paper,
+    Report_in_ClinVar, Report_in_LOVD,
 )
-from .column_mapping import resolve_columns
+from .column_mapping import (
+    resolve_columns, DETAIL_COLUMNS,
+    CLINVAR_REPORT_FIELDS, LOVD_REPORT_FIELDS, LOVD_ANCHOR_REPORT_FIELDS,
+)
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
 
@@ -108,9 +112,40 @@ def variant(request):
         variant = Variant.objects.get(VRS_Digest=variant_id)
 
     query = Variant.objects.filter(VRS_Digest=variant.VRS_Digest)
+    query, values_fields = resolve_columns(query, DETAIL_COLUMNS)
 
-    variant_versions = list(map(variant_to_dict, query))
+    variant_versions = list(query.values(*values_fields))
     response = JsonResponse({"data": variant_versions})
+    response['Access-Control-Allow-Origin'] = '*'
+    return response
+
+
+def variant_reports(request, variant_id):
+    variant_id_clean = str(variant_id).lower().strip()
+    variant_id_clean = remove_disallowed_chars(variant_id_clean)
+
+    if variant_id_clean.startswith('ca'):
+        variant = Variant.objects.filter(Q(CA_ID__icontains=variant_id_clean))[0]
+    else:
+        variant = Variant.objects.get(VRS_Digest=variant_id)
+
+    reports = []
+
+    for r in Report_in_ClinVar.objects.filter(VRS_Digest__VRS_Digest=variant.VRS_Digest):
+        d = {'Source': 'ClinVar'}
+        for old, field in CLINVAR_REPORT_FIELDS.items():
+            d[old] = getattr(r, field)
+        reports.append(d)
+
+    for r in Report_in_LOVD.objects.filter(VRS_Digest__VRS_Digest=variant.VRS_Digest).select_related('VRS_Digest'):
+        d = {'Source': 'LOVD'}
+        for old, field in LOVD_REPORT_FIELDS.items():
+            d[old] = getattr(r, field)
+        for old, field in LOVD_ANCHOR_REPORT_FIELDS.items():
+            d[old] = getattr(r.VRS_Digest, field)
+        reports.append(d)
+
+    response = JsonResponse({"data": reports})
     response['Access-Control-Allow-Origin'] = '*'
     return response
 

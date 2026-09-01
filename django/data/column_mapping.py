@@ -169,6 +169,43 @@ for base in _FUNCTIONAL_ASSAY_COLUMNS:
     _RENAMES[f'{base}_ENIGMA_BRCA12_Functional_Assays'] = f'other_data__variant_data__{json_key}'
 
 
+# Old column name -> Report_in_ClinVar/Report_in_LOVD field name. Used both
+# to build the most-recent-wins Subquery mapping below (for index()'s
+# flattened table view) and directly by variant_reports() (for the detail
+# page's per-report list, unflattened - see views.py).
+CLINVAR_REPORT_FIELDS = {
+    'Allele_Origin_ClinVar': 'Allele_Origin',
+    'Clinical_Significance_ClinVar': 'Clinical_Significance',
+    'DateSignificanceLastEvaluated_ClinVar': 'DateSignificanceLastEvaluated',
+    'Date_Last_Updated_ClinVar': 'Date_Last_Updated',
+    'Description_ClinVar': 'Description',
+    'Method_ClinVar': 'Method',
+    'Review_Status_ClinVar': 'Review_Status',
+    'SCV_ClinVar': 'SCV',
+    'Submitter_ClinVar': 'Submitter',
+    'Summary_Evidence_ClinVar': 'Summary_Evidence',
+}
+
+LOVD_REPORT_FIELDS = {
+    'Classification_LOVD': 'Classification',
+    'Created_date_LOVD': 'Created_date',
+    'DBID_LOVD': 'DBID',
+    'Edited_date_LOVD': 'Edited_date',
+    'Functional_analysis_result_LOVD': 'Functional_analysis_result',
+    'Functional_analysis_technique_LOVD': 'Functional_analysis_technique',
+    'Genetic_origin_LOVD': 'Genetic_origin',
+    'Individuals_LOVD': 'Individuals',
+    'Remarks_LOVD': 'Remarks',
+    'Submitters_LOVD': 'Submitters',
+    'Variant_frequency_LOVD': 'Variant_frequency',
+}
+
+# Variant_haplotype_LOVD lives on the LOVD anchor table (Variant_in_LOVD),
+# not per-report, but the frontend's reportBinding.cols still expects it on
+# each LOVD report item.
+LOVD_ANCHOR_REPORT_FIELDS = {'Variant_haplotype_LOVD': 'Variant_haplotype'}
+
+
 def _build_map():
     m = {}
 
@@ -179,37 +216,10 @@ def _build_map():
     for f in base_fields:
         m[f] = f
 
-    # ClinVar (Report_in_ClinVar, one-to-many, most-recently-updated wins)
-    clinvar_fields = {
-        'Allele_Origin_ClinVar': 'Allele_Origin',
-        'Clinical_Significance_ClinVar': 'Clinical_Significance',
-        'DateSignificanceLastEvaluated_ClinVar': 'DateSignificanceLastEvaluated',
-        'Date_Last_Updated_ClinVar': 'Date_Last_Updated',
-        'Description_ClinVar': 'Description',
-        'Method_ClinVar': 'Method',
-        'Review_Status_ClinVar': 'Review_Status',
-        'SCV_ClinVar': 'SCV',
-        'Submitter_ClinVar': 'Submitter',
-        'Summary_Evidence_ClinVar': 'Summary_Evidence',
-    }
-    for old, field in clinvar_fields.items():
+    # ClinVar/LOVD (Report_in_ClinVar/Report_in_LOVD, one-to-many, most-recently-updated wins)
+    for old, field in CLINVAR_REPORT_FIELDS.items():
         m[old] = _clinvar_subquery(field)
-
-    # LOVD (Report_in_LOVD, one-to-many, most-recently-updated wins)
-    lovd_fields = {
-        'Classification_LOVD': 'Classification',
-        'Created_date_LOVD': 'Created_date',
-        'DBID_LOVD': 'DBID',
-        'Edited_date_LOVD': 'Edited_date',
-        'Functional_analysis_result_LOVD': 'Functional_analysis_result',
-        'Functional_analysis_technique_LOVD': 'Functional_analysis_technique',
-        'Genetic_origin_LOVD': 'Genetic_origin',
-        'Individuals_LOVD': 'Individuals',
-        'Remarks_LOVD': 'Remarks',
-        'Submitters_LOVD': 'Submitters',
-        'Variant_frequency_LOVD': 'Variant_frequency',
-    }
-    for old, field in lovd_fields.items():
+    for old, field in LOVD_REPORT_FIELDS.items():
         m[old] = _lovd_subquery(field)
 
     m.update(_RENAMES)
@@ -232,6 +242,14 @@ PENDING_COLUMNS = {
     'Pathogenicity_all', 'Allele_Frequency', 'Allele_Frequency_Charts_Exome_GnomAD',
     'Allele_Frequency_Charts_Genome_GnomADv3', 'Source', 'Source_URL',
 }
+
+# Every resolvable column except ClinVar/LOVD, which the detail page renders
+# from variant_reports() instead (see views.py) - those are genuinely
+# one-to-many and the flat variant() response only has room for one
+# (most-recently-updated) value per column, which isn't the right answer here.
+DETAIL_COLUMNS = sorted(
+    set(COLUMN_MAP) - set(CLINVAR_REPORT_FIELDS) - set(LOVD_REPORT_FIELDS)
+)
 
 
 def resolve_columns(queryset, column_names):
