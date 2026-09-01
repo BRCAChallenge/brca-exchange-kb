@@ -255,7 +255,10 @@ def index(request):
         query, synonyms_count = apply_search(query, search_term, quotes=quotes)
 
     if order_by:
-        query = apply_order(query, order_by, direction)
+        try:
+            query = apply_order(query, order_by, direction)
+        except ValueError as e:
+            return HttpResponseBadRequest(str(e))
 
     if format == 'csv' or format == 'tsv':
         cursor = connection.cursor()
@@ -500,9 +503,13 @@ def apply_order(query, order_by, direction):
     # special case for HGVS columns
     if order_by in ('HGVS_cDNA', 'HGVS_Protein'):
         order_by = 'Gene_Symbol'
+    try:
+        query, (resolved,) = resolve_columns(query, [order_by])
+    except KeyError as e:
+        raise ValueError('Unknown order_by column(s): %s' % ', '.join(e.args[0]))
     if direction == 'descending':
-        order_by = '-' + order_by
-    return query.order_by(order_by, 'Pathogenicity')
+        resolved = '-' + resolved
+    return query.order_by(resolved, 'enigma_reports__Pathogenicity')
 
 
 def select_page(query, page_size, page_num):
