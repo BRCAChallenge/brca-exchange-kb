@@ -352,9 +352,16 @@ def test_missing_allele_count_suggests_absence_can_be_disabled():
 # _compute_evidence_code: coverage-dataset fallback + gnomAD-version naming
 # ---------------------------------------------------------------------------
 
-def _row(chrom="chr13", pos=100, ref="A", alt="G",
-         flags=None, allele_count="5", faf95="0.01", faf95_pop="afr"):
-    return ("hgvs.test", chrom, pos, ref, alt, flags, allele_count, faf95, faf95_pop)
+_COORDS = ("hgvs.test", "chr13", 100, "A", "G")
+
+# Frequency rows are keyed the way report_gnomad labels releases -- note 'v3',
+# not 'v3.1', which is the mapping _COVERAGE_TO_REPORT exists to bridge.
+_JOINT = ("v4.1", "joint")
+_GENOME_REPORT = ("v3", "genome")
+
+
+def _freq(flags=None, allele_count="5", faf95="0.01", faf95_pop="afr"):
+    return (flags, allele_count, faf95, faf95_pop)
 
 
 def test_compute_evidence_code_prefers_first_sufficient_dataset():
@@ -363,7 +370,8 @@ def test_compute_evidence_code_prefers_first_sufficient_dataset():
     coverage_meta = [("v4.1", "joint"), ("v3.1", "genome")]
 
     code, msg, idx = popfreq._compute_evidence_code(
-        *_row(), [coverage_v4_joint, coverage_v3_genome], coverage_meta,
+        *_COORDS, {_JOINT: _freq(), _GENOME_REPORT: _freq()},
+        [coverage_v4_joint, coverage_v3_genome], coverage_meta,
         None, _config(),
     )
     assert idx == 0
@@ -377,7 +385,8 @@ def test_compute_evidence_code_falls_back_to_next_dataset_when_first_insufficien
     coverage_meta = [("v4.1", "joint"), ("v3.1", "genome")]
 
     code, msg, idx = popfreq._compute_evidence_code(
-        *_row(), [coverage_v4_joint, coverage_v3_genome], coverage_meta,
+        *_COORDS, {_JOINT: _freq(), _GENOME_REPORT: _freq()},
+        [coverage_v4_joint, coverage_v3_genome], coverage_meta,
         None, _config(),
     )
     assert idx == 1
@@ -390,23 +399,31 @@ def test_compute_evidence_code_no_sufficient_dataset_fails_with_no_dataset_idx()
     coverage_meta = [("v4.1", "joint")]
 
     code, msg, idx = popfreq._compute_evidence_code(
-        *_row(), [coverage_v4_joint], coverage_meta, None, _config(),
+        *_COORDS, {_JOINT: _freq()}, [coverage_v4_joint], coverage_meta, None, _config(),
     )
     assert code == popfreq.FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG
     assert idx is None
 
 
-def test_compute_evidence_code_null_gnomad_columns_treated_as_missing():
+def test_compute_evidence_code_row_with_no_frequency_data_at_all_is_skipped():
+    """A release whose row carries neither an allele count nor a FAF is a
+    loading gap, so it is skipped rather than scored as an absence. Absence is
+    represented by having no row for the release at all (see
+    test_release_with_no_report_row_but_good_coverage_is_a_genuine_absence).
+
+    When the skipped release is the only candidate there is nothing left to
+    score against, so the read-depth failure code is what comes back.
+    """
     coverage_v4_joint = {13: {100: {"mean": 30.0}}}
     coverage_meta = [("v4.1", "joint")]
 
     code, msg, idx = popfreq._compute_evidence_code(
-        *_row(flags=None, allele_count=None, faf95=None, faf95_pop=None),
+        *_COORDS,
+        {_JOINT: _freq(flags=None, allele_count=None, faf95=None, faf95_pop=None)},
         [coverage_v4_joint], coverage_meta, None, _config(),
     )
-    # No allele count, no FAF -> PM2_Supporting candidate under default config
-    # (missing allele count already suggests absence by default).
-    assert code == popfreq.PM2_SUPPORTING
+    assert code == popfreq.FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG
+    assert idx is None
 
 
 def test_compute_evidence_code_end_to_end_missing_faf_suggests_absence():
@@ -417,17 +434,100 @@ def test_compute_evidence_code_end_to_end_missing_faf_suggests_absence():
     coverage_meta = [("v4.1", "joint")]
 
     code_legacy, _, _ = popfreq._compute_evidence_code(
-        *_row(allele_count="9999", faf95=None),
+        *_COORDS, {_JOINT: _freq(allele_count="9999", faf95=None)},
         [coverage_v4_joint], coverage_meta, None, _config(),
     )
     assert code_legacy == popfreq.NO_CODE
 
     code_1_3, _, _ = popfreq._compute_evidence_code(
-        *_row(allele_count="9999", faf95=None),
+        *_COORDS, {_JOINT: _freq(allele_count="9999", faf95=None)},
         [coverage_v4_joint], coverage_meta, None,
         _config(missing_faf_suggests_absence=True),
     )
     assert code_1_3 == popfreq.PM2_SUPPORTING
+
+
+# ---------------------------------------------------------------------------
+# The selected release supplies coverage AND frequencies (the popfreq bug fix)
+# ---------------------------------------------------------------------------
+
+def test_frequencies_come_from_the_release_that_supplied_coverage():
+    """The whole point of the fix: when v4.1 joint coverage is insufficient and
+    the v3.1 genome release is used instead, the FAF must be read from the v3
+    report row -- not from v4.1 joint, which used to be hardcoded."""
+    coverage_v4_joint = {13: {100: {"mean": 2.0}}}    # insufficient
+    coverage_v3_genome = {13: {100: {"mean": 30.0}}}  # sufficient
+    coverage_meta = [("v4.1", "joint"), ("v3.1", "genome")]
+
+    code, msg, idx = popfreq._compute_evidence_code(
+        *_COORDS,
+        {_JOINT: _freq(faf95="0.01"),           # would be BA1 if wrongly used
+         _GENOME_REPORT: _freq(faf95="0.0005")},  # BS1 band -- the correct source
+        [coverage_v4_joint, coverage_v3_genome], coverage_meta, None, _config(),
+    )
+    assert idx == 1
+    assert code == popfreq.BS1
+    assert "0.0005" in msg and "gnomAD v3.1" in msg
+
+
+def test_v3_1_coverage_label_maps_to_v3_report_rows():
+    """coverage_meta says 'v3.1'; report_gnomad says 'v3'. Frequencies keyed the
+    report way must still be found."""
+    coverage = {13: {100: {"mean": 30.0}}}
+    code, msg, idx = popfreq._compute_evidence_code(
+        *_COORDS, {_GENOME_REPORT: _freq(faf95="0.01")},
+        [coverage], [("v3.1", "genome")], None, _config(),
+    )
+    assert idx == 0
+    assert code == popfreq.BA1   # found the row; not treated as absent
+
+
+def test_rarity_is_evaluated_per_release_not_once_up_front():
+    """Rarity selects the read-depth threshold (25 rare vs 20 common), so it has
+    to be decided from each release's own FAF. Here v4.1 joint is common at
+    depth 20 (sufficient), while judging it by the v3 release's rare FAF would
+    have demanded 25 and wrongly skipped it."""
+    coverage_v4_joint = {13: {100: {"mean": 20.0}}}
+    coverage_v3_genome = {13: {100: {"mean": 30.0}}}
+    coverage_meta = [("v4.1", "joint"), ("v3.1", "genome")]
+
+    code, msg, idx = popfreq._compute_evidence_code(
+        *_COORDS,
+        {_JOINT: _freq(faf95="0.01"),               # common -> threshold 20 -> OK
+         _GENOME_REPORT: _freq(faf95="0.000001")},  # rare
+        [coverage_v4_joint, coverage_v3_genome], coverage_meta, None, _config(),
+    )
+    assert idx == 0
+    assert code == popfreq.BA1
+
+
+def test_release_with_no_frequency_data_loaded_is_skipped_not_read_as_absent():
+    """The v4.1 exome rows exist but carry no AC and no FAF. Scoring them as an
+    absence would manufacture PM2_Supporting, so the release is skipped and the
+    next one is used."""
+    coverage_exome = {13: {100: {"mean": 30.0}}}
+    coverage_v3_genome = {13: {100: {"mean": 30.0}}}
+    coverage_meta = [("v4.1", "exome"), ("v3.1", "genome")]
+
+    code, msg, idx = popfreq._compute_evidence_code(
+        *_COORDS,
+        {("v4.1", "exome"): _freq(flags="-", allele_count="-", faf95="-", faf95_pop="-"),
+         _GENOME_REPORT: _freq(faf95="0.01")},
+        [coverage_exome, coverage_v3_genome], coverage_meta, None, _config(),
+    )
+    assert idx == 1
+    assert code == popfreq.BA1
+
+
+def test_release_with_no_report_row_but_good_coverage_is_a_genuine_absence():
+    """No row at all means the variant was not observed in that release. With
+    sufficient coverage that is a real absence and stays PM2-eligible."""
+    coverage = {13: {100: {"mean": 30.0}}}
+    code, msg, idx = popfreq._compute_evidence_code(
+        *_COORDS, {}, [coverage], [("v4.1", "joint")], None, _config(),
+    )
+    assert idx == 0
+    assert code == popfreq.PM2_SUPPORTING
 
 
 # ---------------------------------------------------------------------------
