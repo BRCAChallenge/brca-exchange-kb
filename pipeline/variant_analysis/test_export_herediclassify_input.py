@@ -99,8 +99,35 @@ _POPULATIONS = {
 }
 
 
+_POPULATIONS_NON_ANCESTRY = {   # the shape v4.1 exome rows carry
+    'joint':   {'ac': '5', 'af': '0.001', 'an': '5000', 'ac_hom': '1'},
+    'genomes': {'ac': '5', 'af': '0.001', 'an': '5000', 'ac_hom': '1'},
+}
+
+
 def test_build_gnomad_absent_row_returns_none():
     assert exp.build_gnomad(None, None, None, None, None) is None
+
+
+def test_build_gnomad_ignores_non_ancestry_populations_shape():
+    """A populations JSON keyed by data type rather than ancestry group cannot
+    yield a popmax; summing it would double-count."""
+    block = exp.build_gnomad('0.001', '5', '0.0005', 'nfe', _POPULATIONS_NON_ANCESTRY)
+    assert block['AC_hom'] == 0
+    assert block['popmax_AF'] == 0.0
+    assert block['popmax_AC'] == 0
+    assert block['AF'] == 0.001          # scalar columns still used
+    assert block['faf_popmax_AF'] == 0.0005
+
+
+def test_build_gnomad_handles_v3_oth_ancestry_key():
+    """v3/genome uses 'oth' where v4.1 uses 'remaining'; both are ancestry groups."""
+    pops = {'afr': {'ac': '1', 'af': '0.0001', 'ac_hom': '0'},
+            'oth': {'ac': '9', 'af': '0.5',    'ac_hom': '2'}}
+    block = exp.build_gnomad('0.01', '10', '0.001', 'oth', pops)
+    assert block['popmax_AF'] == 0.5
+    assert block['popmax_AC'] == 9
+    assert block['AC_hom'] == 2
 
 
 def test_build_gnomad_maps_fields_and_uppercases_subpopulation():
@@ -144,11 +171,9 @@ def _row(**overrides):
         'pos': '43057110',
         'ref': 'A',
         'alt': 'C',
-        'allele_frequency': '0.00015',
-        'allele_count': '12',
-        'faf95_popmax': '0.0001',
-        'faf95_popmax_population': 'nfe',
-        'populations': _POPULATIONS,
+        'popfreq_code': 'BS1_Supporting (met)',
+        'gnomad_version': 'v4.1',
+        'gnomad_data_type': 'joint',
         'bayesdel': '0.31',
         'spliceai_result': '0.05',
         'prior': '0.02',
@@ -160,6 +185,17 @@ def _row(**overrides):
     return tuple(fields.values())
 
 
+# Frequency rows keyed as report_gnomad labels the releases ('v3', not 'v3.1').
+def _freqs(**overrides):
+    f = {
+        ('v4.1', 'joint'):  ('0.00015', '12', '0.0001', 'nfe', _POPULATIONS),
+        ('v3', 'genome'):   ('0.9', '900', '0.5', 'afr', _POPULATIONS),
+        ('v4.1', 'exome'):  ('-', '-', '-', '-', _POPULATIONS_NON_ANCESTRY),
+    }
+    f.update(overrides)
+    return f
+
+
 def _vep_records():
     return [{
         'most_severe_consequence': 'missense_variant',
@@ -168,10 +204,13 @@ def _vep_records():
 
 
 def test_build_input_json_full_row():
-    data, reason = exp.build_input_json(_row(), _vep_records())
+    data, reason = exp.build_input_json(_row(), _vep_records(), _freqs())
     assert reason is None
-    assert data['_meta'] == {'VRS_Digest': 'ga4gh:VA.test1234',
-                             'HGVS_cDNA': 'c.5219T>G'}
+    assert data['_meta']['VRS_Digest'] == 'ga4gh:VA.test1234'
+    assert data['_meta']['HGVS_cDNA'] == 'c.5219T>G'
+    # the popfreq verdict travels with the variant so the run summary can show it
+    assert data['_meta']['popfreq_code'] == 'BS1_Supporting (met)'
+    assert data['_meta']['gnomad_version'] == 'v4.1'
     assert data['chr'] == '17'
     assert data['pos'] == 43057110
     assert data['variant_type'] == ['missense_variant']
@@ -185,30 +224,50 @@ def test_build_input_json_full_row():
     assert data['multifactorial_log-likelihood'] == 1.5
 
 
-def test_build_input_json_omits_gnomad_when_absent():
-    row = _row(allele_frequency=None, allele_count=None, faf95_popmax=None,
-               faf95_popmax_population=None, populations=None)
-    data, reason = exp.build_input_json(row, _vep_records())
+def test_build_input_json_uses_the_release_popfreq_recorded():
+    """The whole point: a variant scored against v3.1 genome must be given the
+    v3 genome frequencies, not v4.1 joint's."""
+    row = _row(gnomad_version='v3.1', gnomad_data_type='genome')
+    data, reason = exp.build_input_json(row, _vep_records(), _freqs())
+    assert reason is None
+    assert data['gnomAD']['AF'] == 0.9              # from the v3 row
+    assert data['gnomAD']['faf_popmax_AF'] == 0.5
+    assert data['_meta']['gnomad_version'] == 'v3.1'
+
+
+def test_build_input_json_omits_gnomad_when_popfreq_recorded_no_release():
+    """No release had adequate coverage -> no gnomAD block. HerediClassify will
+    read that as absent (PM2_Supporting met), so _meta keeps the reason."""
+    row = _row(popfreq_code='No code met (read depth, flags)',
+               gnomad_version=None, gnomad_data_type=None)
+    data, reason = exp.build_input_json(row, _vep_records(), _freqs())
+    assert reason is None
+    assert 'gnomAD' not in data
+    assert data['_meta']['popfreq_code'] == 'No code met (read depth, flags)'
+
+
+def test_build_input_json_omits_gnomad_when_release_has_no_row():
+    data, reason = exp.build_input_json(_row(), _vep_records(), {})
     assert reason is None
     assert 'gnomAD' not in data
 
 
 def test_build_input_json_omits_out_of_bounds_bayesdel():
-    data, _ = exp.build_input_json(_row(bayesdel='5.0'), _vep_records())
+    data, _ = exp.build_input_json(_row(bayesdel='5.0'), _vep_records(), _freqs())
     assert 'pathogenicity_prediction_tools' not in data
 
 
 def test_build_input_json_vep_error_and_empty():
-    _, reason = exp.build_input_json(_row(), {'error': 'parse failed'})
+    _, reason = exp.build_input_json(_row(), {'error': 'parse failed'}, _freqs())
     assert 'VEP error' in reason
-    _, reason = exp.build_input_json(_row(), [])
+    _, reason = exp.build_input_json(_row(), [], _freqs())
     assert reason == 'no VEP records'
 
 
 def test_build_input_json_no_usable_transcripts():
     records = [{'most_severe_consequence': 'missense_variant',
                 'transcript_consequences': [_tc(transcript_id='NM_007294.4')]}]
-    _, reason = exp.build_input_json(_row(), records)
+    _, reason = exp.build_input_json(_row(), records, _freqs())
     assert reason == 'no usable transcript consequences'
 
 
@@ -222,11 +281,15 @@ def test_build_input_json_validates_against_herediclassify_schema():
     with open(schema_path) as f:
         schema = json.load(f)
 
-    data, _ = exp.build_input_json(_row(), _vep_records())
+    data, _ = exp.build_input_json(_row(), _vep_records(), _freqs())
     jsonschema.validate(data, schema)   # raises on failure
 
     # gnomAD-absent variant must also validate
-    row = _row(allele_frequency=None, allele_count=None, faf95_popmax=None,
-               faf95_popmax_population=None, populations=None)
-    data, _ = exp.build_input_json(row, _vep_records())
+    row = _row(gnomad_version=None, gnomad_data_type=None)
+    data, _ = exp.build_input_json(row, _vep_records(), _freqs())
+    jsonschema.validate(data, schema)
+
+    # ...as must one taking frequencies from the v3 genome release
+    row = _row(gnomad_version='v3.1', gnomad_data_type='genome')
+    data, _ = exp.build_input_json(row, _vep_records(), _freqs())
     jsonschema.validate(data, schema)

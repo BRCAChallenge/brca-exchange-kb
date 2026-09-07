@@ -35,11 +35,27 @@ log = logging.getLogger(__name__)
 _BAYESDEL_MIN = -1.29334
 _BAYESDEL_MAX = 0.75731
 
+# The popfreq analysis records, per variant, which gnomAD release had adequate
+# coverage -- and that release is also the one whose frequencies its evidence
+# code was computed from (see run_popfreq_analysis.py). We hand HerediClassify
+# frequencies from that same release rather than a fixed one. The release is
+# named coverage-side ('v3.1'); report_gnomad labels it 'v3', hence the map.
+_COVERAGE_TO_REPORT = {
+    ('v4.1', 'joint'):  ('v4.1', 'joint'),
+    ('v4.1', 'exome'):  ('v4.1', 'exome'),
+    ('v3.1', 'genome'): ('v3',   'genome'),
+}
+
+# gnomAD reports frequencies per genetic ancestry group; a populations JSON
+# keyed any other way (the v4.1 exome rows are keyed joint/genomes/exomes)
+# cannot be reduced to a popmax and is ignored rather than summed into nonsense.
+_ANCESTRY_KEYS = {'afr', 'ami', 'amr', 'asj', 'eas', 'fin', 'mid', 'nfe',
+                  'sas', 'oth', 'remaining'}   # v3 says 'oth' where v4.1 says 'remaining'
+
 _QUERY = """
 SELECT v."VRS_Digest", v."Gene_Symbol", v."HGVS_cDNA",
        gc.hgvs, gc.chr, gc.pos, gc.ref, gc.alt,
-       rg."Allele_frequency", rg."Allele_count",
-       rg.faf95_popmax, rg.faf95_popmax_population, rg.populations,
+       apec.popfreq_code, apec.gnomad_version, apec.gnomad_data_type,
        ab."BayesDel_nsfp33a_noAF",
        asp.result,
        ex."Combined_Prior_P", ex."Co_Occurrence_LR",
@@ -47,13 +63,20 @@ SELECT v."VRS_Digest", v."Gene_Symbol", v."HGVS_cDNA",
 FROM variant v
 JOIN variant_genomic_coordinates gc
      ON gc."VRS_Digest" = v."VRS_Digest" AND gc.assembly = 'GRCh38'
-LEFT JOIN report_gnomad rg
-     ON rg."VRS_Digest" = v."VRS_Digest"
-     AND rg.version = 'v4.1' AND rg.data_type = 'joint'
+LEFT JOIN analysis_provisional_evidence_codes apec
+     ON apec."VRS_Digest" = v."VRS_Digest" AND apec.method_name = %(method)s
 LEFT JOIN analysis_bayesdel ab ON ab."VRS_Digest" = v."VRS_Digest"
 LEFT JOIN analysis_spliceai asp ON asp."VRS_Digest" = v."VRS_Digest"
 LEFT JOIN variant_exlovd ex ON ex."VRS_Digest" = v."VRS_Digest"
 WHERE v."Gene_Symbol" = ANY(%(genes)s)
+"""
+
+# Frequencies for every release, looked up by the release popfreq selected.
+_QUERY_FREQ = """
+SELECT "VRS_Digest", version, data_type,
+       "Allele_frequency", "Allele_count", faf95_popmax, faf95_popmax_population,
+       populations
+FROM report_gnomad
 """
 
 
@@ -124,12 +147,11 @@ def build_variant_effect(transcript_consequences, gene):
 
 def build_gnomad(allele_frequency, allele_count, faf95_popmax,
                  faf95_popmax_population, populations):
-    """Map a report_gnomad v4.1 joint row to HerediClassify's gnomAD block.
+    """Map one report_gnomad row to HerediClassify's gnomAD block.
 
-    Returns None if the variant has no gnomAD row at all (all columns NULL
-    from the LEFT JOIN) — HerediClassify treats a missing gnomAD key as
-    'absent from gnomAD' (frequency 0, subpopulation "None"), which is the
-    intended semantics.
+    Returns None if there is no row — HerediClassify treats a missing gnomAD
+    key as 'absent from gnomAD' (frequency 0, subpopulation "None"), which is
+    the intended semantics.
     """
     if all(v is None for v in (allele_frequency, allele_count, faf95_popmax,
                                faf95_popmax_population, populations)):
@@ -140,11 +162,12 @@ def build_gnomad(allele_frequency, allele_count, faf95_popmax,
 
     ac_hom = 0
     popmax_af, popmax_ac = None, None
-    if populations:
-        for pop_data in populations.values():
+    if populations and _ANCESTRY_KEYS.intersection(populations):
+        ancestry = {k: v for k, v in populations.items() if k in _ANCESTRY_KEYS}
+        for pop_data in ancestry.values():
             ac_hom += _to_int(pop_data.get('ac_hom')) or 0
         # popmax over the reported genetic ancestry groups
-        best = max(populations.values(),
+        best = max(ancestry.values(),
                    key=lambda p: _to_float(p.get('af')) or 0.0)
         popmax_af = _to_float(best.get('af'))
         popmax_ac = _to_int(best.get('ac'))
@@ -168,14 +191,19 @@ def build_gnomad(allele_frequency, allele_count, faf95_popmax,
     }
 
 
-def build_input_json(row, vep_records):
+def build_input_json(row, vep_records, freq_by_dataset=None):
     """Build the HerediClassify input dict for one DB row + its VEP records.
+
+    freq_by_dataset maps (version, data_type) -- as report_gnomad labels them --
+    to that release's frequency fields. The release named by the row's
+    popfreq evidence code is the one used; when popfreq recorded none (no
+    release had adequate coverage) no gnomAD block is emitted at all.
 
     Returns (input_dict, None) on success or (None, reason) on failure.
     """
     (vrs_digest, gene, hgvs_cdna, _hgvs, chr_, pos, ref, alt,
-     allele_frequency, allele_count, faf95_popmax, faf95_popmax_population,
-     populations, bayesdel, spliceai_result,
+     popfreq_code, gnomad_version, gnomad_data_type,
+     bayesdel, spliceai_result,
      prior, co_occurrence, segregation, product_of_lrs) = row
 
     if isinstance(vep_records, dict) and 'error' in vep_records:
@@ -193,7 +221,10 @@ def build_input_json(row, vep_records):
         most_severe = variant_effect[0]['variant_type'][0]
 
     data = {
-        '_meta': {'VRS_Digest': vrs_digest, 'HGVS_cDNA': hgvs_cdna},
+        '_meta': {'VRS_Digest': vrs_digest, 'HGVS_cDNA': hgvs_cdna,
+                  'popfreq_code': popfreq_code,
+                  'gnomad_version': gnomad_version,
+                  'gnomad_data_type': gnomad_data_type},
         'chr': str(chr_),
         'pos': int(pos),
         'gene': gene,
@@ -203,10 +234,18 @@ def build_input_json(row, vep_records):
         'variant_effect': variant_effect,
     }
 
-    gnomad = build_gnomad(allele_frequency, allele_count, faf95_popmax,
-                          faf95_popmax_population, populations)
-    if gnomad is not None:
-        data['gnomAD'] = gnomad
+    # No release had adequate coverage, so there is no frequency data we trust:
+    # emit no gnomAD block. Note this is not neutral -- HerediClassify reads a
+    # missing gnomAD key as "absent from gnomAD" and PM2_Supporting will be met.
+    # _meta.popfreq_code carries the reason through to the run summary so these
+    # variants stay identifiable.
+    if gnomad_version and gnomad_data_type:
+        report_key = _COVERAGE_TO_REPORT.get((gnomad_version, gnomad_data_type))
+        freq = (freq_by_dataset or {}).get(report_key) if report_key else None
+        if freq is not None:
+            gnomad = build_gnomad(*freq)
+            if gnomad is not None:
+                data['gnomAD'] = gnomad
 
     bayesdel_val = _to_float(bayesdel) if _defined(bayesdel) else None
     if bayesdel_val is not None:
@@ -255,10 +294,13 @@ def _query_vep_batch(session, vep_url, hgvs_list):
               help='Export at most this many variants')
 @click.option('--overwrite', is_flag=True, default=False,
               help='Rewrite input JSONs that already exist')
+@click.option('--popfreq-method', default='popfreq_1.2', show_default=True,
+              help='method_name in analysis_provisional_evidence_codes naming, '
+                   'per variant, the gnomAD release the frequencies come from')
 @click.option('--debug', is_flag=True, default=False,
               help='Print the generated JSON for each variant')
 def main(db_url, schema, vep_url, out_dir, genes, vrs_digest, limit,
-         overwrite, debug):
+         overwrite, popfreq_method, debug):
     logging.basicConfig(level=logging.WARNING, format='%(levelname)s %(message)s')
 
     input_dir = os.path.join(out_dir, 'input')
@@ -269,15 +311,30 @@ def main(db_url, schema, vep_url, out_dir, genes, vrs_digest, limit,
 
     conn = psycopg2.connect(db_url, options=f'-c search_path={schema}')
     try:
-        query, params = _QUERY, {'genes': gene_list}
+        query, params = _QUERY, {'genes': gene_list, 'method': popfreq_method}
         if vrs_digest:
             query += ' AND v."VRS_Digest" = %(digest)s'
             params['digest'] = vrs_digest
         with conn.cursor() as cur:
             cur.execute(query, params)
             rows = cur.fetchall()
+
+        # Frequencies for every release; each variant uses the one its popfreq
+        # evidence code named.
+        freq_by_variant = {}
+        with conn.cursor() as cur:
+            if vrs_digest:
+                cur.execute(_QUERY_FREQ + ' WHERE "VRS_Digest" = %s', (vrs_digest,))
+            else:
+                cur.execute(_QUERY_FREQ)
+            for digest, version, data_type, af, ac, faf, faf_pop, pops in cur:
+                freq_by_variant.setdefault(digest, {})[(version, data_type)] = (
+                    af, ac, faf, faf_pop, pops)
     finally:
         conn.close()
+
+    print(f'Loaded gnomAD frequencies for {len(freq_by_variant)} variant(s) '
+          f'(release chosen per variant by {popfreq_method}).')
 
     if vrs_digest and not rows:
         print(f'Error: VRS digest {vrs_digest!r} not found in the database.')
@@ -321,7 +378,8 @@ def main(db_url, schema, vep_url, out_dir, genes, vrs_digest, limit,
             row = hgvs_map.get(hgvs)
             if row is None:
                 continue
-            data, reason = build_input_json(row, records)
+            data, reason = build_input_json(
+                row, records, freq_by_variant.get(row[0], {}))
             if data is None:
                 errors.append((row[0], reason))
                 continue

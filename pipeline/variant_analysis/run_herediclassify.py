@@ -80,14 +80,22 @@ def summarise(output_dir, summary_path):
 
     with open(summary_path, 'w', newline='') as f:
         writer = csv.writer(f, delimiter='\t')
+        # popfreq_code / gnomad_* say which gnomAD release the frequencies came
+        # from, and are empty exactly when no release had adequate coverage --
+        # in which case HerediClassify saw no gnomAD data and its population
+        # rules (notably PM2) should not be trusted for that variant.
         writer.writerow(['VRS_Digest', 'gene', 'HGVS_cDNA',
-                         'classification_protein', 'classification_splicing']
+                         'classification_protein', 'classification_splicing',
+                         'popfreq_code', 'gnomad_version', 'gnomad_data_type']
                         + rule_names)
         for out in outputs:
             rules = out['rules']
             row = [out.get('VRS_Digest'), out.get('gene'), out.get('HGVS_cDNA'),
                    rules.get('classification_protein'),
-                   rules.get('classification_splicing')]
+                   rules.get('classification_splicing'),
+                   out.get('popfreq_code') or '',
+                   out.get('gnomad_version') or '',
+                   out.get('gnomad_data_type') or '']
             for name in rule_names:
                 rule = rules.get(name)
                 if rule is None:
@@ -167,7 +175,11 @@ def main():
 
     done, failed = 0, 0
     started = datetime.datetime.now()
-    with open(errors_path, 'a') as errors_fh:
+    # --overwrite means a deliberate full recompute, so start the error log
+    # fresh; otherwise we are resuming and earlier failures still stand.
+    # (Appending unconditionally leaves rows for variants a later attempt
+    # went on to classify successfully.)
+    with open(errors_path, 'w' if args.overwrite else 'a') as errors_fh:
         for i, path in enumerate(input_paths, start=1):
             with open(path) as f:
                 data = json.load(f)
@@ -192,6 +204,9 @@ def main():
                 'VRS_Digest': digest,
                 'gene': data.get('gene'),
                 'HGVS_cDNA': meta.get('HGVS_cDNA'),
+                'popfreq_code': meta.get('popfreq_code'),
+                'gnomad_version': meta.get('gnomad_version'),
+                'gnomad_data_type': meta.get('gnomad_data_type'),
                 'config_name': final_config.get('name'),
                 'config_version': final_config.get('version'),
                 'herediclassify_version': hc_version,
