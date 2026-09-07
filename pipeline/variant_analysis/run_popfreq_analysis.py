@@ -4,14 +4,17 @@
 """
 Populate analysis_provisional_evidence_codes from the database.
 
-Reads gnomAD v4 data from report_gnomad, GRCh38 coordinates from
+Reads gnomAD data from report_gnomad, GRCh38 coordinates from
 variant_genomic_coordinates, and computes provisional population frequency
 evidence codes for each variant. Results are upserted into
 analysis_provisional_evidence_codes.
 
-Coverage is assessed in priority order: gnomAD v4.1 joint, then gnomAD v4.1
-exome, then gnomAD v3.1 genome. The first dataset that is sufficient for the
-variant is used. If none is sufficient, the evidence code is set to
+Releases are assessed in priority order: gnomAD v4.1 joint, then gnomAD v4.1
+exome, then gnomAD v3.1 genome. The first release whose coverage is sufficient
+for the variant is used, and that same release supplies the frequencies (FAF,
+allele count, filter flags) the evidence code is computed from -- coverage and
+frequency always come from the same gnomAD release. If no release is
+sufficient, the evidence code is set to
 FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG.
 
 An LCR BED file may optionally be supplied as a local file.
@@ -40,6 +43,16 @@ FAIL_LCR = "No code met (low-complexity region)"
 READ_DEPTH_THRESHOLD_FREQUENT_VARIANT = 20
 READ_DEPTH_THRESHOLD_RARE_VARIANT = 25
 ALLELE_COUNT_RARE_VARIANT_THRESHOLD = 1
+
+# Coverage datasets are named after the gnomAD release ('v3.1' for the v3.1
+# genome release); report_gnomad stores that same release under version 'v3'.
+# The coverage-side name is what gets reported and stored, so this map is used
+# only to find the release's frequency row.
+_COVERAGE_TO_REPORT = {
+    ('v4.1', 'joint'):  ('v4.1', 'joint'),
+    ('v4.1', 'exome'):  ('v4.1', 'exome'),
+    ('v3.1', 'genome'): ('v3',   'genome'),
+}
 
 # Default threshold values (popfreq_1.3)
 _BA1_FAF_THRESHOLD            = 0.001
@@ -331,17 +344,29 @@ def analyze_one_dataset(faf95_popmax_str, allele_count, snv_or_small_indel,
         return(NO_CODE_INDEL, no_code_indel_msg(gnomad_label))
 
 
+def _as_field(value):
+    """NULL gnomAD columns (variant not reported in that release) read as '-'."""
+    return value if value is not None else '-'
+
+
 def _compute_evidence_code(hgvs_cdna, chr_, pos, ref, alt,
-                            gnomad_flags, gnomad_allele_count,
-                            gnomad_faf95, gnomad_faf95_population,
+                            freq_by_dataset,
                             coverage_datasets, coverage_meta, lcr, config: PopfreqConfig, debug=False):
     """Compute the popfreq evidence code for one variant from DB row fields.
 
     coverage_datasets is a list of coverage dicts tried in priority order.
     coverage_meta is the parallel list of (gnomad_version, gnomad_data_type)
-    tuples, used to name the actual gnomAD dataset in evidence-code messages.
-    The first dataset that is sufficient for the variant is used. If none is
-    sufficient, FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG is returned.
+    tuples naming each release.
+
+    freq_by_dataset maps (version, data_type) -- keyed as report_gnomad labels
+    them, see _COVERAGE_TO_REPORT -- to that release's
+    (Flags, Allele_count, faf95_popmax, faf95_popmax_population).
+
+    The release that supplies the read depth also supplies the frequencies:
+    each candidate's own FAF decides whether the variant is rare there (which
+    selects the read-depth threshold), and its own coverage decides whether it
+    is usable at all. The first usable release wins. If none is usable,
+    FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG is returned.
     """
     start = int(pos)
     end = start + len(ref) - 1
@@ -351,90 +376,111 @@ def _compute_evidence_code(hgvs_cdna, chr_, pos, ref, alt,
     indel_size = max(len(ref), len(alt)) - 1
     snv_or_small_indel = is_snv or (indel_size <= config.small_indel_size_threshold)
 
-    # NULL gnomAD columns (variant absent from gnomAD v4) are treated as '-' (undefined).
-    faf95 = gnomad_faf95 if gnomad_faf95 is not None else '-'
-    allele_count = gnomad_allele_count if gnomad_allele_count is not None else '-'
-    faf95_pop = gnomad_faf95_population if gnomad_faf95_population is not None else '-'
-    # report_gnomad.Flags uses '-' for PASS; any other non-null value is a filter flag.
-    is_flagged = gnomad_flags is not None and gnomad_flags != '-'
-
-    # Determine whether the variant is rare (mirrors logic in analyze_one_dataset).
-    if field_defined(faf95):
-        faf_val = float(faf95)
-        rare_variant = math.isnan(faf_val) or faf_val <= config.rare_variant_faf_threshold
-    else:
-        rare_variant = True
-
     if debug:
         print(f'  _compute_evidence_code inputs:')
         print(f'    hgvs_cdna={hgvs_cdna!r}  chr={chr_}  pos={pos}  ref={ref!r}')
-        print(f'    gnomad_flags={gnomad_flags!r}  gnomad_allele_count={gnomad_allele_count!r}')
-        print(f'    gnomad_faf95={gnomad_faf95!r}  gnomad_faf95_population={gnomad_faf95_population!r}')
+        print(f'    frequencies available for: {sorted(freq_by_dataset)}')
         print(f'  derived:')
         print(f'    start={start}  end={end}  chrom={chrom}  is_snv={is_snv}  indel_size={indel_size}  snv_or_small_indel={snv_or_small_indel}')
-        print(f'    faf95={faf95!r}  faf95_pop={faf95_pop!r}  allele_count={allele_count!r}')
-        print(f'    is_flagged={is_flagged}  rare_variant={rare_variant}')
 
-    # Try coverage datasets in priority order; use the first sufficient one.
-    read_depth = None
-    used_dataset_idx = None
     for idx, cov_data in enumerate(coverage_datasets):
+        row = freq_by_dataset.get(_COVERAGE_TO_REPORT[coverage_meta[idx]])
+
+        if row is None:
+            # Not reported in this release. With sufficient coverage that is a
+            # genuine absence, so the release stays in the running.
+            flags, allele_count, faf95, faf95_pop = None, None, None, None
+        else:
+            flags, allele_count, faf95, faf95_pop = row
+            if not field_defined(_as_field(allele_count)) and not field_defined(_as_field(faf95)):
+                # The row exists but carries no frequency data at all. That is a
+                # gap in what was loaded, not an observed absence -- scoring it
+                # as absent would manufacture PM2_Supporting -- so skip the
+                # release entirely and fall through to the next one.
+                log.warning('%s: no frequency data loaded for gnomAD %s %s; skipping that release',
+                            hgvs_cdna, *coverage_meta[idx])
+                continue
+
+        faf95 = _as_field(faf95)
+        allele_count = _as_field(allele_count)
+        faf95_pop = _as_field(faf95_pop)
+        # report_gnomad.Flags uses '-' for PASS; any other non-null value is a filter flag.
+        is_flagged = flags is not None and flags != '-'
+
+        # Rarity is decided by this release's own FAF (mirrors analyze_one_dataset),
+        # and sets which read-depth threshold applies.
+        if field_defined(faf95):
+            faf_val = float(faf95)
+            rare_variant = math.isnan(faf_val) or faf_val <= config.rare_variant_faf_threshold
+        else:
+            rare_variant = True
+
         _, depth = estimate_coverage(start, end, chrom, cov_data, debug=debug)
-        if is_sufficient(depth, is_flagged, rare_variant):
-            read_depth = depth
-            used_dataset_idx = idx
-            break
 
-    if read_depth is None:
         if debug:
-            print(f'  output: code={FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG!r} (no sufficient dataset)')
-        return FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG, FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG_MSG, None
+            print(f'    candidate {coverage_meta[idx]}: faf95={faf95!r} allele_count={allele_count!r} '
+                  f'faf95_pop={faf95_pop!r} is_flagged={is_flagged} rare_variant={rare_variant} depth={depth}')
+
+        if not is_sufficient(depth, is_flagged, rare_variant):
+            continue
+
+        gnomad_version, _gnomad_data_type = coverage_meta[idx]
+        gnomad_label = f"gnomAD {gnomad_version}"
+
+        # Per-population allele counts are not stored in the DB; '-' is used as placeholder
+        # in the message text only (does not affect code assignment logic).
+        code, msg = analyze_one_dataset(
+            faf95, allele_count, snv_or_small_indel, depth, is_flagged,
+            config.allele_count_threshold,
+            chrom, start, end, lcr,
+            faf95, faf95_pop,
+            '-', '-',
+            config=config,
+            gnomad_label=gnomad_label,
+            debug=debug,
+        )
+
+        if debug:
+            print(f'  output: code={code!r} from {coverage_meta[idx]}')
+
+        return code, msg, idx
 
     if debug:
-        print(f'    read_depth={read_depth}')
-
-    gnomad_version, _gnomad_data_type = coverage_meta[used_dataset_idx]
-    gnomad_label = f"gnomAD {gnomad_version}"
-
-    # Per-population allele counts are not stored in the DB; '-' is used as placeholder
-    # in the message text only (does not affect code assignment logic).
-    code, msg = analyze_one_dataset(
-        faf95, allele_count, snv_or_small_indel, read_depth, is_flagged,
-        config.allele_count_threshold,
-        chrom, start, end, lcr,
-        faf95, faf95_pop,
-        '-', '-',
-        config=config,
-        gnomad_label=gnomad_label,
-        debug=debug,
-    )
-
-    if debug:
-        print(f'  output: code={code!r}')
-
-    return code, msg, used_dataset_idx
+        print(f'  output: code={FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG!r} (no sufficient dataset)')
+    return FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG, FAIL_INSUFFICIENT_READ_DEPTH_OR_FILTER_FLAG_MSG, None
 
 
 _QUERY_ALL = """
 SELECT v."VRS_Digest", v."HGVS_cDNA",
-       gc.chr, gc.pos, gc.ref, gc.alt,
-       rg."Flags", rg."Allele_count",
-       rg.faf95_popmax, rg.faf95_popmax_population
+       gc.chr, gc.pos, gc.ref, gc.alt
 FROM variant v
 JOIN variant_genomic_coordinates gc
      ON gc."VRS_Digest" = v."VRS_Digest" AND gc.assembly = 'GRCh38'
-LEFT JOIN report_gnomad rg
-     ON rg."VRS_Digest" = v."VRS_Digest" AND rg.version = 'v4.1' AND rg.data_type = 'joint'
 """
 
+# Unscored is per method: a variant already carrying, say, popfreq_1.3 is still
+# unscored for popfreq_1.2.
 _QUERY_UNSCORED = _QUERY_ALL + """
 LEFT JOIN analysis_provisional_evidence_codes apec
      ON apec."VRS_Digest" = v."VRS_Digest"
+    AND apec.method_name IS NOT DISTINCT FROM %s
 WHERE apec."VRS_Digest" IS NULL
 """
 
 _QUERY_ONE = _QUERY_ALL + """
 WHERE v."VRS_Digest" = %s
+"""
+
+# Every release's frequencies, keyed by (version, data_type) as report_gnomad
+# labels them. The release selected for coverage supplies the frequencies too.
+_QUERY_FREQ = """
+SELECT "VRS_Digest", version, data_type,
+       "Flags", "Allele_count", faf95_popmax, faf95_popmax_population
+FROM report_gnomad
+"""
+
+_QUERY_FREQ_ONE = _QUERY_FREQ + """
+WHERE "VRS_Digest" = %s
 """
 
 
@@ -517,24 +563,36 @@ def main(db_url, schema, coverage_v4_joint, coverage_v4_exome, coverage_v3_genom
             elif overwrite:
                 cur.execute(_QUERY_ALL)
             else:
-                cur.execute(_QUERY_UNSCORED)
+                cur.execute(_QUERY_UNSCORED, (method_name,))
             rows = cur.fetchall()
 
         if vrs_digest and not rows:
             print(f'Error: VRS digest {vrs_digest!r} not found in the database.')
             return
 
+        # Load every release's frequencies up front, so each variant can be
+        # scored against the release whose coverage is sufficient for it.
+        with conn.cursor() as cur:
+            if vrs_digest:
+                cur.execute(_QUERY_FREQ_ONE, (vrs_digest,))
+            else:
+                cur.execute(_QUERY_FREQ)
+            freq_by_variant = {}
+            for digest, version, data_type, flags, ac, faf, faf_pop in cur:
+                freq_by_variant.setdefault(digest, {})[(version, data_type)] = (
+                    flags, ac, faf, faf_pop)
+        print(f'Loaded gnomAD frequencies for {len(freq_by_variant)} variant(s).')
+
         print(f'Computing evidence codes for {len(rows)} variant(s) ...')
         results = []
-        for (vrs_digest_row, hgvs_cdna, chr_, pos, ref, alt,
-             flags, allele_count, faf95, faf95_pop) in rows:
+        for (vrs_digest_row, hgvs_cdna, chr_, pos, ref, alt) in rows:
 
             if debug:
                 print(f'Analyzing {hgvs_cdna}')
 
             code, msg, dataset_idx = _compute_evidence_code(
                 hgvs_cdna, chr_, pos, ref, alt,
-                flags, allele_count, faf95, faf95_pop,
+                freq_by_variant.get(vrs_digest_row, {}),
                 coverage_datasets, coverage_meta, lcr_data, config=config, debug=debug,
             )
             if dataset_idx is not None:
