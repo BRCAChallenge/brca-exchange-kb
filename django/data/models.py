@@ -412,6 +412,49 @@ class AnalysisHerediClassify(models.Model):
         ]
 
 
+class AnalysisAriane(models.Model):
+    """ARIANE ACMG classification results for a variant.
+
+    One row per variant per run, shaped deliberately like
+    AnalysisHerediClassify so the two can be compared without translation:
+    provenance_metadata describes how the result was produced, method_name is
+    derived from it and carries the uniqueness constraint, and the service's
+    response is stored whole across criteria and result_detail.
+    """
+    VRS_Digest          = models.ForeignKey(Variant, on_delete=models.CASCADE,
+                                            related_name='ariane_results',
+                                            db_column='VRS_Digest')
+    provenance_metadata = models.JSONField()
+
+    method_name         = models.GeneratedField(
+                              expression=KeyTextTransform('method_name', 'provenance_metadata'),
+                              output_field=models.TextField(),
+                              db_persist=True)
+
+    # {criterion_name: {applies, strength, points, reason, decision_path, ...}}.
+    # ARIANE returns this as an array of only the criteria that applied; the
+    # loader re-keys it by name (dropping the redundant "name" from each value)
+    # so it matches AnalysisHerediClassify.rules and "did PVS1 apply" is the
+    # key-existence test `criteria ? 'PVS1'`.
+    criteria            = models.JSONField(null=True, blank=True)
+    # Everything else the service returned, including the classification scalars
+    # (predicted_class, predicted_label, total_points, pathogenic_points,
+    # benign_points, evidence_direction), the narrative and both audits.
+    # criteria + result_detail partition the response: nothing stored twice,
+    # nothing discarded.
+    result_detail       = models.JSONField(null=True, blank=True)
+    VA_Spec             = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'analysis_ariane'
+        unique_together = (('VRS_Digest', 'method_name'),)
+        indexes = [
+            GinIndex(fields=['criteria'], name='ariane_criteria_gin'),
+            GinIndex(fields=['result_detail'], name='ariane_detail_gin'),
+            GinIndex(fields=['provenance_metadata'], name='ariane_prov_gin'),
+        ]
+
+
 class AnalysisPriors(models.Model):
     """In silico prior probability fields shown in the UI."""
     VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE,
