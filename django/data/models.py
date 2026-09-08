@@ -1,6 +1,8 @@
 from django.db import models
 from django.db.models import JSONField
+from django.db.models.fields.json import KeyTextTransform
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from postgres_copy import CopyManager
 
 
@@ -284,6 +286,16 @@ class AnalysisVEP(models.Model):
                                          related_name='vep_analysis', db_column='VRS_Digest')
     variant_class = models.TextField(null=True)
     variant_type  = models.TextField(null=True)
+    # VEP consequence_terms for the Variant.Reference_Sequence RefSeq transcript, comma-separated
+    consequences  = models.TextField(null=True)
+    # VEP HGVSp notation for the Variant.Reference_Sequence RefSeq transcript, e.g.
+    # "NP_009225.1:p.Gln356GlufsTer9"
+    hgvsp         = models.TextField(null=True)
+    # GRCh38 1-based genomic position of the first base of the premature stop codon
+    # described by hgvsp; only set when consequences intersects the PTC consequence
+    # terms and the position could be resolved. Chromosome is implied by Gene_Symbol
+    # (BRCA1 -> chr17, BRCA2 -> chr13).
+    ptc_genomic_pos = models.IntegerField(null=True)
     VA_Spec       = models.JSONField(null=True, blank=True)
 
     class Meta:
@@ -335,6 +347,49 @@ class AnalysisProvisionalEvidenceCodes(models.Model):
     class Meta:
         db_table = 'analysis_provisional_evidence_codes'
         unique_together = (('VRS_Digest', 'method_name'),)
+
+
+class AnalysisHerediClassify(models.Model):
+    """HerediClassify ACMG classification results for a variant.
+
+    One row per variant per run. Everything describing how a result was produced
+    -- the run label, the gnomAD release its frequency rules were fed, the tool
+    and config versions, when it was classified -- lives in provenance_metadata;
+    the classification itself is in the typed columns and the rules object.
+    """
+    VRS_Digest              = models.ForeignKey(Variant, on_delete=models.CASCADE,
+                                                related_name='herediclassify_results',
+                                                db_column='VRS_Digest')
+    provenance_metadata     = models.JSONField()
+
+    # Derived from provenance_metadata so the run label is a real, indexable
+    # column that can carry the uniqueness constraint, while the JSON stays the
+    # single source of truth. Postgres computes it; it cannot drift.
+    method_name             = models.GeneratedField(
+                                  expression=KeyTextTransform('method_name', 'provenance_metadata'),
+                                  output_field=models.TextField(),
+                                  db_persist=True)
+
+    classification_protein  = models.IntegerField(null=True)   # ACMG class 1-5
+    classification_splicing = models.IntegerField(null=True)   # ACMG class 1-5
+    # {rule_name: {rule_type, evidence_type, status, strength, comment}}. JSON
+    # rather than columns because the rule set is config-driven: the BRCA1/BRCA2
+    # configs can gain or drop rules without a schema change. Note PVS1 appears
+    # as exactly one of PVS1 / PVS1_protein / PVS1_splicing per variant.
+    rules                   = models.JSONField(null=True, blank=True)
+    VA_Spec                 = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'analysis_herediclassify'
+        unique_together = (('VRS_Digest', 'method_name'),)
+        indexes = [
+            models.Index(fields=['classification_protein'],
+                         name='herediclassify_class_prot_idx'),
+            # GIN so per-rule questions ("which variants met BA1") and
+            # provenance filters stay fast without extra columns.
+            GinIndex(fields=['rules'], name='herediclassify_rules_gin'),
+            GinIndex(fields=['provenance_metadata'], name='herediclassify_prov_gin'),
+        ]
 
 
 class AnalysisPriors(models.Model):
