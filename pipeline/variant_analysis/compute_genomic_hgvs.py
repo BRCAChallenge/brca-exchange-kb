@@ -1,5 +1,5 @@
 """
-Populate genomic_coordinates.hgvs with normalized genomic HGVS strings.
+Populate variant_genomic_coordinates.hgvs with normalized genomic HGVS strings.
 
 For every row the genomic HGVS string is derived from the chr/pos/ref/alt
 fields using the biocommons hgvs library and the GRCh38 contig accession map.
@@ -37,7 +37,7 @@ def _genomic_hgvs(wrapper, contig_map, chrom, pos, ref, alt):
               envvar='PIPELINE_DB_URL', show_default=True,
               help='PostgreSQL connection URL for the pipeline DB')
 @click.option('--schema', default='pipeline', show_default=True,
-              help='Schema containing genomic_coordinates')
+              help='Schema containing variant_genomic_coordinates')
 def main(db_url, schema):
     logging.basicConfig(level=logging.WARNING,
                         format='%(levelname)s %(message)s')
@@ -48,7 +48,7 @@ def main(db_url, schema):
     conn = psycopg2.connect(db_url, options=f'-c search_path={schema}')
     try:
         with conn.cursor() as cur:
-            cur.execute('SELECT id, chr, pos, ref, alt FROM genomic_coordinates')
+            cur.execute('SELECT id, chr, pos, ref, alt FROM variant_genomic_coordinates')
             rows = cur.fetchall()
 
         print(f'Computing genomic HGVS for {len(rows)} rows ...')
@@ -68,7 +68,7 @@ def main(db_url, schema):
             for i in range(0, len(updates), BATCH_SIZE):
                 batch = updates[i : i + BATCH_SIZE]
                 cur.executemany(
-                    'UPDATE genomic_coordinates SET hgvs = %s WHERE id = %s',
+                    'UPDATE variant_genomic_coordinates SET hgvs = %s WHERE id = %s',
                     batch,
                 )
         conn.commit()

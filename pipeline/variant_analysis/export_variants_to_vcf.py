@@ -57,7 +57,7 @@ def main(db_url, schema, output):
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT chr, pos, ref, alt
-                FROM genomic_coordinates
+                FROM variant_genomic_coordinates
                 WHERE assembly = 'GRCh38'
                 ORDER BY chr, pos::bigint
             """)

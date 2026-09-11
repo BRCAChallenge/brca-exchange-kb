@@ -103,7 +103,7 @@ class GenerateSpliceAIScores(VCFAssemblyTask):
         default=1000,
         description='Max variants per SpliceAI batch')
     spliceai_depth = luigi.IntParameter(
-        default=10000,
+        default=4999,
         description='SpliceAI search depth (-D)')
 
     def output(self):
@@ -132,12 +132,18 @@ class GenerateSpliceAIScores(VCFAssemblyTask):
 class AnalyzeSpliceAI(VCFAssemblyTask):
     """Populate analysis_spliceai from the SpliceAI-scored VCF."""
 
+    overwrite = luigi.BoolParameter(
+        default=False,
+        description='Re-score variants already present in analysis_spliceai')
+
     def output(self):
         return luigi.LocalTarget(os.path.join(self.vcf_dir, 'analyze_spliceai.done'))
 
     def run(self):
         script = os.path.join(_pipeline_dir, 'variant_analysis', 'run_spliceai_analysis.py')
         args = [sys.executable, script, '--spliceai-vcf', self.input().path, '--schema', self.cfg.db_schema]
+        if self.overwrite:
+            args.append('--overwrite')
         self._run_process_with_pipeline_path(args)
         with open(self.output().path, 'w') as f:
             f.write('done\n')
