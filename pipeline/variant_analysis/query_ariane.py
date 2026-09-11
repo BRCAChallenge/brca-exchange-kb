@@ -3,37 +3,56 @@ Classify every variant with the ARIANE service, storing results on the filesyste
 
 ARIANE (https://ariane-app.duckdns.org/) is an ENIGMA BRCA1/2 ACMG
 classification service. This script reads gene + HGVS cDNA from the variant
-table, POSTs them to /api/classify/batch, and writes one JSON file per variant.
+table, POSTs them to the v1 batch endpoint, and writes one JSON file per variant.
 Nothing is written to the database.
 
 Output layout (under --out-dir):
     results/<VRS_Digest with ':' replaced by '_'>.json
-    errors.tsv                variants the service could not classify
+    errors.tsv                variants the service could not classify: digest,
+                              gene, c_notation, category, status, code,
+                              retryable, message
+    unqueryable.tsv           variants never sent, with the reason
     ariane_summary.tsv        one row per classified variant
     run.log                   (when launched detached)
 
-Variants that already have a result file are skipped unless --overwrite, so the
-run is idempotent and a multi-day pass can be stopped and resumed freely.
+Variants that already have a result file are skipped unless --overwrite, and so
+are variants whose earlier failure the service marked non-retryable unless
+--retry-failed. The run is idempotent, and a multi-day pass can be stopped and
+resumed without re-spending quota on answers already known.
 
-Three measured properties of the service shape this script:
+The API key is read from $ARIANE_API_KEY, else from --api-key-file (default
+~/.config/ariane/api_key). It is deliberately not a command-line option -- argv
+is visible to every user in the process list -- and it is never logged or
+written to results.
 
-  * A batch is processed serially server-side at ~5.3 s per uncached variant,
-    and nginx cuts requests off at 60 s. Batches of 5 (~26 s) leave margin;
-    a batch of 20 reliably 504s.
-  * A 504 does not mean the work was lost. The backend completes and caches it,
-    so re-POSTing the same batch returns quickly. 504 is retried, not failed.
-  * A single unclassifiable variant rejects the WHOLE batch with 422. Variants
-    whose notation is likely to be rejected are therefore sent individually, and
-    any batch that still 422s is bisected to isolate the offender rather than
-    losing its healthy siblings.
+Properties of the v1 service (1.9.11) that shape this script:
+
+  * Quota is 5,000 classifications per key per UTC day, and failed
+    classifications count against it. Every response reports what is left; when
+    it runs out, all workers sleep until the reset rather than burning retries.
+  * Errors come back per item inside a 200, each marked retryable or not, so a
+    bad variant no longer takes its whole batch down. 422 bisection is kept as a
+    safety net should a whole payload ever be rejected again.
+  * A 504 does not mean the work was lost: the backend completes and caches it,
+    so re-POSTing the same batch returns quickly.
+  * A 401/403 means the key itself is missing or rejected, which retrying cannot
+    fix, so the run stops at once rather than recording the same rejection for
+    every remaining variant.
+  * The deployed build revision is published only by /api/resources, not per
+    result, so it is fetched at start, hourly, and whenever the per-result
+    application version changes, and stamped on each result.
 """
 
+import collections
 import concurrent.futures
+import csv
 import datetime
 import json
 import logging
 import os
 import random
+import re
+import sys
 import threading
 import time
 
@@ -43,15 +62,25 @@ import requests
 
 log = logging.getLogger(__name__)
 
-DEFAULT_BASE_URL = 'https://ariane-app.duckdns.org'
+DEFAULT_BASE_URL = 'https://ariane-app.duckdns.org/api/v1'
+# The build revision is published here; v1 does not report it per result.
+RESOURCES_URL = 'https://ariane-app.duckdns.org/api/resources'
+DEFAULT_API_KEY_FILE = '~/.config/ariane/api_key'
+API_KEY_HEADER = 'X-ARIANE-API-Key'
 
-# Batch of 5 takes ~26s server-side against a 60s gateway timeout.
+# The ARIANE developers recommend batches of 5 -- also published as
+# recommended_uncached_batch_items in /api/v1/capabilities. 10 is the maximum.
 DEFAULT_BATCH_SIZE = 5
+MAX_BATCH_SIZE = 10
+# concurrent_classifications_per_key in /api/v1/capabilities.
 DEFAULT_WORKERS = 2
 
 REQUEST_TIMEOUT = 90        # > the 60s gateway timeout, so we see the 504 itself
 MAX_ATTEMPTS = 4
+MAX_CONSECUTIVE_429 = 100   # a quota wait is not a failure, but never loop forever
 INTER_REQUEST_DELAY = 0.5   # politeness: this is a small shared instance
+BUILD_REFRESH_SECONDS = 3600
+QUOTA_RESET_MARGIN = 30     # seconds past the advertised reset before resuming
 
 _QUERY = """
 SELECT "VRS_Digest", "Gene_Symbol", "HGVS_cDNA"
@@ -59,21 +88,38 @@ FROM variant
 WHERE "Gene_Symbol" = ANY(%(genes)s)
 """
 
-def categorize_error(status, message):
-    """Bucket a failure so the ~2,800 expected ones do not hide real breakage.
+# Service-side evidence gaps. The service cannot classify these variants, and
+# retrying will not change that.
+_SERVICE_LIMITATION_CODES = {
+    'structural_population_evidence_unavailable',
+    'spliceai_coordinates_unavailable',
+}
 
-    ARIANE's installed reference bundle carries CDS sequence only, so any UTR
-    *substitution* fails reference-allele verification (UTR indels pass, since
-    they need no reference base). Those are a known limit of the service, not a
-    fault of this run, and are labelled as such.
+
+def utc_now():
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')
+
+
+def categorize_error(status, message, code=None, retryable=None):
+    """Bucket a failure so the expected ones do not hide real breakage.
+
+    service_limitation  the service cannot classify the variant: its reference
+                        bundle cannot verify the reference allele, or evidence
+                        it requires is unavailable
+    transient           worth trying again on the next run
+    data                the variant itself is unusable (malformed notation)
+    error               anything else
     """
     text = str(message or '')
-    if status == 422 and 'Reference allele could not be verified' in text:
+    if 'Reference allele could not be verified' in text or code in _SERVICE_LIMITATION_CODES:
         return 'service_limitation'
-    if status in ('skipped', 'missing'):
-        return 'data'
-    if status == 'retries_exhausted':
+    # A SpliceAI lookup timing out is the Broad API being flaky under load, not a
+    # property of the variant, whatever the item's retryable flag says.
+    if retryable or status == 'retries_exhausted' or (
+            'SpliceAI' in text and '(api_error)' in text):
         return 'transient'
+    if code == 'invalid_variant' or status in ('skipped', 'missing'):
+        return 'data'
     return 'error'
 
 
@@ -93,13 +139,44 @@ def normalize_notation(hgvs_cdna):
     return text if text.startswith('c.') else None
 
 
-# Notations in these shapes are the ones ARIANE is most likely to reject (the
-# confirmed case was a 3' UTR variant whose reference allele could not be
-# verified). They are sent one at a time so a rejection cannot take a batch of
-# healthy variants down with it.
-def is_risky_notation(c_notation):
-    return not (c_notation or '').startswith('c.') or \
-           c_notation.startswith('c.*') or c_notation.startswith('c.-')
+# ARIANE's installed reference bundle covers the coding sequence plus this many
+# bases of intronic flank, and no UTR sequence at all. Outside it there is no
+# reference base to verify, so a substitution is rejected outright while an
+# indel still classifies (it needs no reference base). Measured in a live run:
+# intronic substitutions at offsets 1-50 classified 3,468 of 3,468, at >=51
+# failed 28,375 of 28,375; UTR substitutions failed 2,978 of 2,978.
+DEFAULT_MAX_INTRON_OFFSET = 50
+
+_INTRON_OFFSET_RE = re.compile(r'^c\.[0-9]+[+-]([0-9]+)')
+_SUBSTITUTION_RE = re.compile(r'[ACGT]>[ACGT]$')
+
+
+def intron_offset(c_notation):
+    """Distance into the intron for a c.NNN+M / c.NNN-M notation, else None."""
+    m = _INTRON_OFFSET_RE.match(c_notation or '')
+    return int(m.group(1)) if m else None
+
+
+def unverifiable_reason(c_notation, max_intron_offset=DEFAULT_MAX_INTRON_OFFSET,
+                        skip_utr_substitutions=True):
+    """Why the service cannot classify this variant, or None if it can.
+
+    Sending a variant the reference bundle demonstrably cannot verify spends a
+    unit of the daily quota on a guaranteed rejection, so those are filtered out
+    before the run. Only substitutions are affected: indels carry no reference
+    allele to check.
+    """
+    if not _SUBSTITUTION_RE.search(c_notation or ''):
+        return None
+    if skip_utr_substitutions and c_notation.startswith(('c.*', 'c.-')):
+        return 'UTR substitution (outside ARIANE reference bundle)'
+    if max_intron_offset is None:
+        return None
+    offset = intron_offset(c_notation)
+    if offset is not None and offset > max_intron_offset:
+        return (f'deep intronic substitution, offset {offset} > '
+                f'{max_intron_offset} (outside ARIANE reference bundle)')
+    return None
 
 
 def digest_to_filename(vrs_digest):
@@ -107,42 +184,189 @@ def digest_to_filename(vrs_digest):
     return vrs_digest.replace(':', '_') + '.json'
 
 
-class Ariane:
-    """Client for the ARIANE batch classification endpoint."""
+def load_api_key(key_file=DEFAULT_API_KEY_FILE):
+    """The ARIANE API key: $ARIANE_API_KEY if set, else the key file.
 
-    def __init__(self, base_url, debug=False):
+    Deliberately not a command-line option -- argv is visible to every user in
+    the process list. Errors name the file, never the key.
+    """
+    key = os.environ.get('ARIANE_API_KEY', '').strip()
+    if key:
+        return key
+    path = os.path.expanduser(key_file)
+    try:
+        with open(path) as f:
+            key = f.read().strip()
+    except FileNotFoundError:
+        raise click.ClickException(
+            f'No ARIANE API key: set ARIANE_API_KEY or create {path} (mode 600).')
+    if not key:
+        raise click.ClickException(f'The ARIANE API key file {path} is empty.')
+    mode = os.stat(path).st_mode & 0o777
+    if mode & 0o077:
+        log.warning('%s is readable by group or others (mode %o); chmod 600 it.',
+                    path, mode)
+    return key
+
+
+class AuthError(Exception):
+    """The API key is missing or rejected; retrying cannot help."""
+
+
+class BuildTracker:
+    """The deployed ARIANE build, which v1 reports only via /api/resources.
+
+    Refreshed at first use, hourly, and whenever the per-result application
+    version changes -- ARIANE has been redeployed mid-run before, and a single
+    start-of-run check would mislabel everything after a redeploy. The build is
+    therefore accurate to within the refresh interval; the exact per-result
+    identity is the classifier_fingerprint ARIANE returns with every result.
+    """
+
+    def __init__(self, url=RESOURCES_URL, refresh_seconds=BUILD_REFRESH_SECONDS,
+                 api_key=None):
+        self.url = url
+        self.refresh_seconds = refresh_seconds
+        self.api_key = api_key
+        self.build = None
+        self.checked_at = None
+        self._checked_mono = None
+        self._seen_version = None
+        self._lock = threading.Lock()
+
+    def _fetch(self):
+        # /api/resources answered without a key until 2026-09-11 and now
+        # returns 401 without one, so the key is sent here too.
+        headers = {API_KEY_HEADER: self.api_key} if self.api_key else {}
+        try:
+            r = requests.get(self.url, headers=headers, timeout=30)
+            r.raise_for_status()
+            return r.json().get('build_revision')
+        except (requests.RequestException, ValueError) as e:
+            log.warning('Could not read the ARIANE build revision from %s: %s',
+                        self.url, e)
+            return None
+
+    def current(self, seen_version=None):
+        """(build, checked_at) for results classified now."""
+        with self._lock:
+            version_changed = (seen_version is not None
+                               and self._seen_version is not None
+                               and seen_version != self._seen_version)
+            if seen_version is not None:
+                self._seen_version = seen_version
+            if (self._checked_mono is None or version_changed
+                    or time.monotonic() - self._checked_mono >= self.refresh_seconds):
+                build = self._fetch()
+                if build:
+                    self.build = build
+                self.checked_at = utc_now()
+                self._checked_mono = time.monotonic()
+            return self.build, self.checked_at
+
+
+class Ariane:
+    """Client for the ARIANE v1 batch classification endpoint."""
+
+    def __init__(self, base_url, api_key=None, debug=False):
         self.base_url = base_url.rstrip('/')
+        self.api_key = api_key
         self.debug = debug
         self._local = threading.local()
+        # Shared by all workers: the daily quota the service last reported.
+        self._quota_lock = threading.Lock()
+        self.quota_remaining = None
+        self.quota_reset = None          # epoch seconds
 
     @property
     def session(self):
         # One session per worker thread; requests.Session is not thread-safe.
         if not hasattr(self._local, 'session'):
-            self._local.session = requests.Session()
+            session = requests.Session()
+            if self.api_key:
+                session.headers[API_KEY_HEADER] = self.api_key
+            self._local.session = session
         return self._local.session
 
     def _post(self, variants):
         payload = {'variants': [{'gene': g, 'c_notation': c} for _, g, c in variants]}
-        return self.session.post(f'{self.base_url}/api/classify/batch',
+        return self.session.post(f'{self.base_url}/classify/batch',
                                  json=payload, timeout=REQUEST_TIMEOUT)
+
+    def _note_quota(self, resp):
+        """Record the daily quota the service reports on every response."""
+        remaining = str(resp.headers.get('x-ratelimit-remaining', ''))
+        reset = str(resp.headers.get('x-ratelimit-reset', ''))
+        with self._quota_lock:
+            if remaining.isdigit():
+                self.quota_remaining = int(remaining)
+            if reset.isdigit():
+                self.quota_reset = int(reset)
+
+    def wait_for_quota(self, needed):
+        """Sleep until the reset if today's quota cannot cover `needed`."""
+        with self._quota_lock:
+            remaining, reset = self.quota_remaining, self.quota_reset
+        if remaining is None or reset is None or remaining >= needed:
+            return
+        delay = reset - time.time() + QUOTA_RESET_MARGIN
+        if delay > 0:
+            log.warning('ARIANE daily quota nearly spent (%d left, %d needed); '
+                        'sleeping %.1fh until the reset at 00:00 UTC.',
+                        remaining, needed, delay / 3600)
+            time.sleep(delay)
+        with self._quota_lock:
+            self.quota_remaining = None     # a new window; the next response says
+                                            # how much of it is left
+
+    def _wait_after_429(self, resp):
+        """Wait out a 429: until the daily reset if the quota is spent, else as asked."""
+        remaining = str(resp.headers.get('x-ratelimit-remaining', ''))
+        reset = str(resp.headers.get('x-ratelimit-reset', ''))
+        if remaining == '0' and reset.isdigit():
+            delay = max(int(reset) - time.time(), 0) + QUOTA_RESET_MARGIN
+            log.warning('ARIANE daily quota spent; sleeping %.1fh until the reset.',
+                        delay / 3600)
+        else:
+            retry_after = str(resp.headers.get('Retry-After', ''))
+            delay = float(retry_after) if retry_after.isdigit() else 60.0
+            log.warning('ARIANE rate limit hit; sleeping %.0fs.', delay)
+        time.sleep(delay)
+        with self._quota_lock:
+            self.quota_remaining = None
 
     def classify(self, variants, on_error):
         """Classify a list of (digest, gene, c_notation).
 
-        Returns {digest: result_dict}. Variants the service rejects are passed
-        to on_error(digest, gene, c_notation, status, message) instead.
+        Returns {digest: (classification, item_metadata)}. Variants the service
+        rejects are passed to on_error(digest, gene, c_notation, status,
+        message, code=..., retryable=...) instead. Raises AuthError if the key
+        is rejected.
         """
-        results = {}
-        for attempt in range(1, MAX_ATTEMPTS + 1):
+        attempt = throttled = 0
+        while attempt < MAX_ATTEMPTS and throttled < MAX_CONSECUTIVE_429:
+            self.wait_for_quota(len(variants))
             try:
                 resp = self._post(variants)
             except requests.RequestException as e:
+                attempt += 1
                 self._backoff(attempt, f'{type(e).__name__}: {e}')
                 continue
+            self._note_quota(resp)
+
+            if resp.status_code == 429:
+                # Out of quota or over the per-minute rate. Waiting it out is not
+                # a failed attempt.
+                throttled += 1
+                self._wait_after_429(resp)
+                continue
+            throttled = 0
 
             if resp.status_code == 200:
                 return self._collect(variants, resp.json(), on_error)
+
+            if resp.status_code in (401, 403):
+                raise AuthError(self._error_message(resp))
 
             if resp.status_code == 422:
                 # The whole payload was rejected because of at least one bad
@@ -150,6 +374,7 @@ class Ariane:
                 # so the extra round trips are cheap.
                 return self._bisect(variants, resp, on_error)
 
+            attempt += 1
             if resp.status_code == 504:
                 # The backend finished and cached the work even though nginx
                 # gave up; retrying returns it quickly.
@@ -158,7 +383,7 @@ class Ariane:
                 self._backoff(attempt, '504 gateway timeout', base=2.0)
                 continue
 
-            if resp.status_code in (429, 500, 502, 503):
+            if resp.status_code in (500, 502, 503):
                 retry_after = resp.headers.get('Retry-After')
                 delay = float(retry_after) if (retry_after or '').isdigit() else None
                 self._backoff(attempt, f'HTTP {resp.status_code}', fixed=delay)
@@ -166,13 +391,13 @@ class Ariane:
 
             # Anything else is not worth retrying.
             for digest, gene, c in variants:
-                on_error(digest, gene, c, resp.status_code, resp.text[:300])
-            return results
+                on_error(digest, gene, c, resp.status_code, self._error_message(resp))
+            return {}
 
         for digest, gene, c in variants:
             on_error(digest, gene, c, 'retries_exhausted',
                      f'no success after {MAX_ATTEMPTS} attempts')
-        return results
+        return {}
 
     def _collect(self, variants, body, on_error):
         """Pull per-item results out of a 200 response."""
@@ -182,18 +407,28 @@ class Ariane:
             item = by_index.get(i)
             if item is None:
                 on_error(digest, gene, c, 'missing', 'no result at this index')
-            elif item.get('status') == 'ok' and item.get('result') is not None:
-                results[digest] = item['result']
+                continue
+            # v1 returns the payload as "classification"; the pre-v1 endpoint
+            # called it "result".
+            payload = item.get('classification', item.get('result'))
+            if item.get('status') == 'ok' and payload is not None:
+                results[digest] = (payload, item.get('metadata') or {})
+                continue
+            err = item.get('error')
+            if isinstance(err, dict):
+                on_error(digest, gene, c, item.get('status', 'error'),
+                         err.get('message', ''), code=err.get('code'),
+                         retryable=err.get('retryable'))
             else:
                 on_error(digest, gene, c, item.get('status', 'error'),
-                         item.get('error') or 'no result returned')
+                         err or 'no result returned')
         return results
 
     def _bisect(self, variants, resp, on_error):
         """A 422 rejects the entire payload. Split until the offender is alone."""
         if len(variants) == 1:
             digest, gene, c = variants[0]
-            on_error(digest, gene, c, 422, self._422_message(resp))
+            on_error(digest, gene, c, 422, self._error_message(resp))
             return {}
         mid = len(variants) // 2
         out = {}
@@ -202,14 +437,21 @@ class Ariane:
         return out
 
     @staticmethod
-    def _422_message(resp):
+    def _error_message(resp):
+        """The service's own explanation of a failed request."""
         try:
-            detail = resp.json().get('detail')
-            if isinstance(detail, list) and detail:
-                return detail[0].get('msg', '')[:300]
-            return str(detail)[:300]
+            body = resp.json()
         except ValueError:
             return resp.text[:300]
+        if not isinstance(body, dict):
+            return str(body)[:300]
+        err = body.get('error')
+        if isinstance(err, dict):
+            return f"{err.get('code', '')}: {err.get('message', '')}"[:300]
+        detail = body.get('detail')
+        if isinstance(detail, list) and detail:
+            return str(detail[0].get('msg', ''))[:300]
+        return str(detail or body)[:300]
 
     def _backoff(self, attempt, reason, base=1.5, fixed=None):
         delay = fixed if fixed is not None else base * (2 ** (attempt - 1))
@@ -219,13 +461,49 @@ class Ariane:
 
 
 def load_done(results_dir):
-    """Digests already fetched — the run's checkpoint."""
+    """Digests already fetched -- the run's checkpoint."""
     return {f[:-len('.json')] for f in os.listdir(results_dir) if f.endswith('.json')}
+
+
+def load_permanent_failures(errors_path):
+    """Digests whose recorded failure the service marked non-retryable.
+
+    Under a daily quota, resending them on every restart spends real
+    classifications on answers already known. Transient failures are retried
+    whatever their flag says, and rows from before errors.tsv carried a
+    retryable column are ignored.
+    """
+    failed = set()
+    if not os.path.exists(errors_path):
+        return failed
+    with open(errors_path) as f:
+        for line in f:
+            parts = line.rstrip('\n').split('\t')
+            if len(parts) >= 8 and parts[6] == 'false' and parts[3] != 'transient':
+                failed.add(parts[0])
+    return failed
+
+
+def result_payload(digest, gene, c_notation, source, classification, item_meta,
+                   build, build_checked_at):
+    """The JSON written for one classified variant.
+
+    _meta.ariane holds the per-result metadata ARIANE returned (application
+    version, classifier fingerprint, policy, request id) plus the build revision
+    current when the variant was classified.
+    """
+    ariane = dict(item_meta or {})
+    ariane['build_version'] = build
+    ariane['build_version_checked_at'] = build_checked_at
+    return {
+        '_meta': {'VRS_Digest': digest, 'gene': gene, 'c_notation': c_notation,
+                  'source': source, 'retrieved': utc_now(), 'ariane': ariane},
+        'result': classification,
+    }
 
 
 def write_summary(results_dir, summary_path):
     """One row per classified variant, from the stored JSON."""
-    import csv
     rows = []
     for name in sorted(os.listdir(results_dir)):
         if not name.endswith('.json'):
@@ -233,6 +511,7 @@ def write_summary(results_dir, summary_path):
         with open(os.path.join(results_dir, name)) as f:
             d = json.load(f)
         meta, res = d.get('_meta', {}), d.get('result', {})
+        ariane = meta.get('ariane') or {}
         # Each criterion is {name, applies, strength, points, reason, ...};
         # only the ones that actually applied are worth carrying here.
         applied = [c for c in (res.get('criteria') or []) if c.get('applies')]
@@ -241,12 +520,13 @@ def write_summary(results_dir, summary_path):
             res.get('predicted_class'), res.get('predicted_label'),
             res.get('total_points'), res.get('evidence_direction'),
             ';'.join(f'{c.get("name")}({c.get("strength")})' for c in applied),
+            ariane.get('application_version'), ariane.get('build_version'),
         ])
     with open(summary_path, 'w', newline='') as f:
         w = csv.writer(f, delimiter='\t')
         w.writerow(['VRS_Digest', 'gene', 'c_notation', 'predicted_class',
                     'predicted_label', 'total_points', 'evidence_direction',
-                    'criteria_met'])
+                    'criteria_met', 'ariane_version', 'build_version'])
         w.writerows(rows)
     print(f'Summary: {len(rows)} variant(s) -> {summary_path}')
 
@@ -259,13 +539,31 @@ def write_summary(results_dir, summary_path):
               show_default=True, type=click.Path(),
               help='Directory for results/, errors.tsv and the summary')
 @click.option('--base-url', default=DEFAULT_BASE_URL, show_default=True)
+@click.option('--api-key-file', default=DEFAULT_API_KEY_FILE, show_default=True,
+              help='File holding the ARIANE API key (mode 600); $ARIANE_API_KEY '
+                   'takes precedence. The key itself is never a command-line '
+                   'argument.')
 @click.option('--genes', default='BRCA1,BRCA2', show_default=True)
 @click.option('--workers', default=DEFAULT_WORKERS, show_default=True,
-              help='Concurrent requests. Kept low deliberately: this is a small '
-                   'shared instance, and the run is resumable so speed is cheap '
-                   'to trade away.')
+              help='Concurrent requests. ARIANE allows 2 concurrent '
+                   'classifications per key, and the daily quota, not '
+                   'throughput, is what bounds the run.')
+@click.option('--max-intron-offset', default=DEFAULT_MAX_INTRON_OFFSET,
+              show_default=True, type=int,
+              help='Skip intronic substitutions deeper than this many bases into '
+                   'the intron: ARIANE\'s reference bundle cannot verify them, so '
+                   'they are a guaranteed rejection. Pass -1 to send them anyway.')
+@click.option('--send-utr-substitutions', is_flag=True, default=False,
+              help='Send UTR substitutions anyway. By default they are skipped: '
+                   'the reference bundle holds no UTR sequence, so each is a '
+                   'guaranteed rejection that still costs quota.')
 @click.option('--batch-size', default=DEFAULT_BATCH_SIZE, show_default=True,
-              help='Variants per request. Above ~8 the 60s gateway timeout hits.')
+              type=click.IntRange(1, MAX_BATCH_SIZE),
+              help='Variants per request. The ARIANE developers recommend 5; the '
+                   f'API accepts at most {MAX_BATCH_SIZE}.')
+@click.option('--retry-failed', is_flag=True, default=False,
+              help='Also resend variants whose earlier failure the service marked '
+                   'non-retryable. Costs quota.')
 @click.option('--vrs-digest', default=None, metavar='DIGEST',
               help='Classify only this variant')
 @click.option('--limit', default=None, type=int, help='Classify at most this many')
@@ -274,10 +572,16 @@ def write_summary(results_dir, summary_path):
 @click.option('--summary-only', is_flag=True, default=False,
               help='Rebuild the summary TSV from stored results and exit')
 @click.option('--debug', is_flag=True, default=False)
-def main(db_url, schema, out_dir, base_url, genes, workers, batch_size,
+def main(db_url, schema, out_dir, base_url, api_key_file, genes, workers,
+         max_intron_offset, send_utr_substitutions, batch_size, retry_failed,
          vrs_digest, limit, overwrite, summary_only, debug):
     logging.basicConfig(level=logging.DEBUG if debug else logging.INFO,
                         format='%(asctime)s %(levelname)s %(message)s')
+    if max_intron_offset is not None and max_intron_offset < 0:
+        max_intron_offset = None    # -1 means "send them anyway"
+    if batch_size > DEFAULT_BATCH_SIZE:
+        log.warning('Batch size %d is above the %d the ARIANE developers recommend.',
+                    batch_size, DEFAULT_BATCH_SIZE)
 
     results_dir = os.path.join(out_dir, 'results')
     os.makedirs(results_dir, exist_ok=True)
@@ -287,6 +591,9 @@ def main(db_url, schema, out_dir, base_url, genes, workers, batch_size,
     if summary_only:
         write_summary(results_dir, summary_path)
         return
+
+    # Before touching the database, so a missing key fails fast.
+    api_key = load_api_key(api_key_file)
 
     gene_list = [g.strip() for g in genes.split(',') if g.strip()]
     conn = psycopg2.connect(db_url, options=f'-c search_path={schema}')
@@ -311,11 +618,13 @@ def main(db_url, schema, out_dir, base_url, genes, workers, batch_size,
     counts = {'ok': 0, 'done_units': 0}
     error_counts = {}
 
-    def on_error(digest, gene, c_notation, status, message):
-        category = categorize_error(status, message)
+    def on_error(digest, gene, c_notation, status, message, code=None, retryable=None):
+        category = categorize_error(status, message, code, retryable)
+        flag = '' if retryable is None else str(bool(retryable)).lower()
         with errors_lock:
-            errors_fh.write(f'{digest}\t{gene}\t{c_notation}\t{category}\t{status}\t'
-                            f'{str(message).replace(chr(9), " ")}\n')
+            errors_fh.write('\t'.join([
+                digest, gene or '', c_notation or '', category, str(status),
+                code or '', flag, str(message).replace('\t', ' ')]) + '\n')
             errors_fh.flush()
         with counts_lock:
             error_counts[category] = error_counts.get(category, 0) + 1
@@ -327,55 +636,70 @@ def main(db_url, schema, out_dir, base_url, genes, workers, batch_size,
     queryable, unqueryable = [], []
     for digest, gene, hgvs in rows:
         notation = normalize_notation(hgvs)
-        if gene and notation:
-            queryable.append((digest, gene, notation))
+        if not (gene and notation):
+            unqueryable.append((digest, gene, hgvs, 'no gene symbol or no c. notation'))
+            continue
+        reason = unverifiable_reason(notation, max_intron_offset,
+                                     skip_utr_substitutions=not send_utr_substitutions)
+        if reason:
+            unqueryable.append((digest, gene, notation, reason))
         else:
-            unqueryable.append((digest, gene, hgvs))
+            queryable.append((digest, gene, notation))
     with open(os.path.join(out_dir, 'unqueryable.tsv'), 'w') as f:
-        for digest, gene, hgvs in unqueryable:
-            f.write(f'{digest}\t{gene}\t{hgvs}\tno gene symbol or no c. notation\n')
+        for digest, gene, notation, reason in unqueryable:
+            f.write(f'{digest}\t{gene}\t{notation}\t{reason}\n')
     rows = queryable
 
     if not overwrite:
         done = load_done(results_dir)
         rows = [r for r in rows if digest_to_filename(r[0])[:-5] not in done]
+    if not retry_failed:
+        permanent = load_permanent_failures(errors_path)
+        if permanent:
+            before = len(rows)
+            rows = [r for r in rows if r[0] not in permanent]
+            print(f'Skipping {before - len(rows)} variant(s) whose earlier failure '
+                  f'the service marked non-retryable (--retry-failed resends them).')
     if limit is not None:
         rows = rows[:limit]
 
-    # Risky notations go one at a time so a 422 cannot take healthy variants
-    # down with it; the rest are batched.
-    risky = [r for r in rows if is_risky_notation(r[2])]
-    safe = [r for r in rows if not is_risky_notation(r[2])]
-    units = ([[r] for r in risky]
-             + [safe[i:i + batch_size] for i in range(0, len(safe), batch_size)])
-    random.shuffle(units)   # spread risky singletons through the run
+    reasons = collections.Counter(u[3].split(',')[0].split(' (')[0] for u in unqueryable)
+    for reason, n in reasons.most_common():
+        print(f'Not sending {n}: {reason}')
 
+    units = [rows[i:i + batch_size] for i in range(0, len(rows), batch_size)]
     total = len(rows)
-    print(f'Classifying {total} variant(s) via {base_url} '
-          f'({len(safe)} batched {batch_size}/request, {len(risky)} sent singly) '
-          f'with {workers} worker(s); {len(unqueryable)} unqueryable skipped.')
+    print(f'Classifying {total} variant(s) via {base_url} in batches of {batch_size} '
+          f'with {workers} worker(s); {len(unqueryable)} not sent (see unqueryable.tsv).')
     if total == 0:
         write_summary(results_dir, summary_path)
         return
 
-    client = Ariane(base_url, debug=debug)
+    client = Ariane(base_url, api_key=api_key, debug=debug)
+    builds = BuildTracker(api_key=api_key)
+    print(f'ARIANE build: {builds.current()[0] or "unknown (could not read /api/resources)"}')
     started = time.time()
+    abort = threading.Event()
+    auth_failure = {}
 
     def run_unit(unit):
-        results = client.classify(unit, on_error)
+        if abort.is_set():
+            return
+        try:
+            results = client.classify(unit, on_error)
+        except AuthError as e:
+            if not abort.is_set():
+                auth_failure['message'] = str(e)
+                abort.set()
+            return
         for digest, gene, c_notation in unit:
-            res = results.get(digest)
-            if res is None:
+            got = results.get(digest)
+            if got is None:
                 continue
-            payload = {
-                '_meta': {
-                    'VRS_Digest': digest, 'gene': gene, 'c_notation': c_notation,
-                    'source': base_url,
-                    'retrieved': datetime.datetime.now(
-                        datetime.timezone.utc).isoformat(timespec='seconds'),
-                },
-                'result': res,
-            }
+            classification, item_meta = got
+            build, checked_at = builds.current(item_meta.get('application_version'))
+            payload = result_payload(digest, gene, c_notation, base_url,
+                                     classification, item_meta, build, checked_at)
             tmp = os.path.join(results_dir, digest_to_filename(digest) + '.tmp')
             with open(tmp, 'w') as f:
                 json.dump(payload, f)
@@ -388,9 +712,8 @@ def main(db_url, schema, out_dir, base_url, genes, workers, batch_size,
             if counts['done_units'] % 20 == 0:
                 elapsed = time.time() - started
                 rate = counts['ok'] / elapsed if elapsed else 0
-                remaining = (total - counts['ok']) / rate / 3600 if rate else 0
-                print(f'  {counts["ok"]}/{total} classified  '
-                      f'({rate * 3600:.0f}/hour, ~{remaining:.1f}h remaining)')
+                print(f'  {counts["ok"]}/{total} classified  ({rate * 3600:.0f}/hour; '
+                      f'quota left today: {client.quota_remaining})')
         time.sleep(INTER_REQUEST_DELAY)
 
     try:
@@ -407,14 +730,17 @@ def main(db_url, schema, out_dir, base_url, genes, workers, batch_size,
     if error_counts:
         print('Not classified, by cause:')
         for category, n in sorted(error_counts.items(), key=lambda kv: -kv[1]):
-            note = ('  (ARIANE reference bundle is CDS-only, so UTR '
-                    'substitutions cannot be verified)'
-                    if category == 'service_limitation' else '')
-            print(f'  {category:20s} {n}{note}')
+            print(f'  {category:20s} {n}')
     if unqueryable:
-        print(f'  {"unqueryable":20s} {len(unqueryable)}'
-              '  (no gene or no c. notation; see unqueryable.tsv)')
+        print(f'  {"not sent":20s} {len(unqueryable)}  (see unqueryable.tsv)')
     write_summary(results_dir, summary_path)
+
+    if abort.is_set():
+        where = '$ARIANE_API_KEY' if os.environ.get('ARIANE_API_KEY') else api_key_file
+        print(f'\nStopped: ARIANE rejected the API key ({auth_failure.get("message")}). '
+              f'Check {where}. Variants not yet sent were not recorded as failed, so '
+              f'rerunning resumes where this stopped.', file=sys.stderr)
+        sys.exit(2)
 
 
 if __name__ == '__main__':
