@@ -103,7 +103,7 @@ class GenerateSpliceAIScores(VCFAssemblyTask):
         default=1000,
         description='Max variants per SpliceAI batch')
     spliceai_depth = luigi.IntParameter(
-        default=4999,
+        default=10000,
         description='SpliceAI search depth (-D)')
 
     def output(self):
