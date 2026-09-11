@@ -431,6 +431,22 @@ class AnalysisAriane(models.Model):
                               output_field=models.TextField(),
                               db_persist=True)
 
+    # The ARIANE release that classified the variant ("1.9.11"). ARIANE reports
+    # it per result, as application_version; the loader stores it under this key.
+    ariane_version      = models.GeneratedField(
+                              expression=KeyTextTransform('ariane_version', 'provenance_metadata'),
+                              output_field=models.TextField(),
+                              db_persist=True)
+    # The deployed build ("626d234"). ARIANE exposes this only on /api/resources,
+    # not per result, so it is the build current at the query script's most
+    # recent check -- refreshed hourly and on any version change, so accurate to
+    # within about an hour. The exact per-result identity is the
+    # classifier_fingerprint kept in provenance_metadata.
+    build_version       = models.GeneratedField(
+                              expression=KeyTextTransform('build_version', 'provenance_metadata'),
+                              output_field=models.TextField(),
+                              db_persist=True)
+
     # {criterion_name: {applies, strength, points, reason, decision_path, ...}}.
     # ARIANE returns this as an array of only the criteria that applied; the
     # loader re-keys it by name (dropping the redundant "name" from each value)
@@ -449,6 +465,9 @@ class AnalysisAriane(models.Model):
         db_table = 'analysis_ariane'
         unique_together = (('VRS_Digest', 'method_name'),)
         indexes = [
+            # Restricting to one engine version is the common filter when
+            # comparing classifiers.
+            models.Index(fields=['ariane_version'], name='ariane_version_idx'),
             GinIndex(fields=['criteria'], name='ariane_criteria_gin'),
             GinIndex(fields=['result_detail'], name='ariane_detail_gin'),
             GinIndex(fields=['provenance_metadata'], name='ariane_prov_gin'),
