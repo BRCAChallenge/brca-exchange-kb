@@ -13,11 +13,22 @@ import argparse
 import os
 import shutil
 import subprocess
+import sys
 import pysam
 
 from common.hgvs_utils import HgvsWrapper
 
 HGVS_38_COL = 'pyhgvs_Genomic_Coordinate_38'
+
+# Score against the MANE Select transcripts rather than SpliceAI's packaged
+# GENCODE V24 table: SpliceAI N-masks everything outside the annotated
+# transcript, so the packaged BRCA1 record (1,334 bases short at the 3' end)
+# distorts every variant within ~5 kb of it.  See make_spliceai_annotation.py.
+DEFAULT_ANNOTATION = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  'spliceai_annotations',
+                                  'brca_mane_grch38.txt')
+SPLICEAI_RUNNER = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               'spliceai_runner.py')
 
 
 def parse_args():
@@ -30,10 +41,14 @@ def parse_args():
                         help="Search depth for spliceAI")
     parser.add_argument("-f", "--genome_fa_file",
                         help="Pathname for the genome fa file (e.g. hg38.fa)")
-    parser.add_argument("-g", "--genome_name",
-                        help="Name of the genome")
+    parser.add_argument("-g", "--annotation", default=DEFAULT_ANNOTATION,
+                        help="Gene annotation for spliceAI (-A): 'grch37', "
+                             "'grch38', or a path to an annotation table. "
+                             "Defaults to the MANE Select table for BRCA1/2.")
     parser.add_argument("-o", "--output_vcf",
                         help="Output VCF file with all variants scored")
+    parser.add_argument("-p", "--precision", default="3",
+                        help="Decimal places for the spliceAI delta scores")
     parser.add_argument("-s", "--scored_variants_vcf",
                         help="VCF with spliceAI scores for scored variants")
     parser.add_argument('-t', "--temp_dir",
@@ -75,9 +90,13 @@ def vcf_unscored_variants(all_variants_vcf, scored_variants_vcf,
     return(variant_count)
 
 def run_spliceai(unscored_vcf, newly_scored_vcf,
-                 genome_fa_file, genome_name, depth, debug=True):
-    spliceai_cmd = ["spliceai", "-I", unscored_vcf, "-O", newly_scored_vcf,
-                    "-R", genome_fa_file, "-A", genome_name, "-D", depth]
+                 genome_fa_file, annotation, depth, precision, debug=True):
+    # spliceai_runner.py is the spliceAI CLI with the delta-score precision
+    # raised from spliceAI's hard-coded two decimal places.
+    spliceai_cmd = [sys.executable, SPLICEAI_RUNNER,
+                    "-I", unscored_vcf, "-O", newly_scored_vcf,
+                    "-R", genome_fa_file, "-A", annotation, "-D", depth,
+                    "--precision", precision]
     if debug:
         print("About to execute", spliceai_cmd)
     subprocess.run(spliceai_cmd)
@@ -120,7 +139,7 @@ def main():
             all_variants_scored = True
         else:
             run_spliceai(unscored_vcf, newly_scored_vcf, args.genome_fa_file,
-                         args.genome_name, args.depth)
+                         args.annotation, args.depth, args.precision)
             merge_scored_vcf(scored_vcf, newly_scored_vcf, args.output_vcf)
             #
             # Copy the merged output file, with the old and new scores, to the
