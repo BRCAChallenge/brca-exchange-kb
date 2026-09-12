@@ -3,7 +3,8 @@ Populate analysis_spliceai from a SpliceAI-annotated VCF.
 
 Parses DS_AG, DS_AL, DS_DG, DS_DL, DP_AG, DP_AL, DP_DG, DP_DL from the
 SpliceAI INFO field and joins to the database by GRCh38 chr/pos/ref/alt.
-result = max(DS_AG, DS_AL, DS_DG, DS_DL).
+result = max(DS_AG, DS_AL, DS_DG, DS_DL), carried through with the precision
+the VCF was written at.
 Variants already in analysis_spliceai are skipped unless --overwrite is set.
 """
 
@@ -47,10 +48,13 @@ def _parse_spliceai_vcf(path):
                     row[name] = val
                     if name.startswith('DS_'):
                         try:
-                            ds_values.append(float(val))
+                            ds_values.append((float(val), val))
                         except ValueError:
                             pass
-                row['result'] = str(max(ds_values)) if ds_values else None
+                # Carry the winning delta score through exactly as the VCF
+                # wrote it, so result keeps whatever precision SpliceAI was
+                # run at instead of being re-rendered by str().
+                row['result'] = max(ds_values)[1] if ds_values else None
                 scores[(chrom, pos, ref, alt)] = row
                 break
     return scores

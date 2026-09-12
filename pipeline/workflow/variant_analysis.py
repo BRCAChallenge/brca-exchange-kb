@@ -106,6 +106,15 @@ class GenerateSpliceAIScores(VCFAssemblyTask):
     spliceai_depth = luigi.IntParameter(
         default=4999,
         description='SpliceAI search depth (-D)')
+    spliceai_annotation = luigi.Parameter(
+        default=os.path.join(_pipeline_dir, 'insilico', 'spliceai_annotations',
+                             'brca_mane_grch38.txt'),
+        description='SpliceAI gene annotation (-A); defaults to the MANE '
+                    'Select transcripts for BRCA1/2 rather than SpliceAI\'s '
+                    'packaged GENCODE V24 table')
+    spliceai_precision = luigi.IntParameter(
+        default=3,
+        description='Decimal places for the SpliceAI delta scores')
 
     def output(self):
         return luigi.LocalTarget(os.path.join(self.artifacts_dir, 'variants_with_splice_ai.vcf'))
@@ -120,8 +129,9 @@ class GenerateSpliceAIScores(VCFAssemblyTask):
             '-b', str(self.spliceai_batch_size),
             '-d', str(self.spliceai_depth),
             '-f', self.genome_fa,
-            '-g', 'grch38',
+            '-g', self.spliceai_annotation,
             '-o', self.output().path,
+            '-p', str(self.spliceai_precision),
             '-t', tmp_dir,
         ]
         if self.previous_spliceai_vcf:
