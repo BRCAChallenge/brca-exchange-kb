@@ -61,7 +61,6 @@ Jinja2==3.1.6
 jinja2-cli==1.0.1  # provides the `jinja2` command used by `make init`
 lockfile==0.12.2
 luigi==3.8.0
-lxml==4.9.2
 mock==5.0.1
 parse==1.15.0
 Parsley==1.3

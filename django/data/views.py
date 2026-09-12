@@ -14,7 +14,7 @@ from django.http import JsonResponse, HttpResponse, HttpResponseBadRequest
 from django.views.decorators.gzip import gzip_page
 from .models import (
     Variant, DataRelease,
-    InSilicoPriors, Variant_in_Paper, Paper, VariantRepresentation
+    Variant_in_Paper, Paper
 )
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
@@ -46,20 +46,20 @@ def variant_counts(request):
     brca2_count = query.filter(Gene_Symbol='BRCA2').count()
     query = query.filter(enigma_reports__isnull=False).distinct()
     enigma_count = query.count()
-    enigma_pathogenic_count = query.filter(Pathogenicity='Pathogenic').count()
-    enigma_benign_count = query.filter(Pathogenicity__contains='Benign').count()
-    enigma_likely_benign_count = query.filter(Pathogenicity__contains='Likely benign').count()
-    enigma_likely_pathogenic_count = query.filter(Pathogenicity__contains='Likely pathogenic').count()
+    enigma_pathogenic_count = query.filter(enigma_reports__Pathogenicity='Pathogenic').count()
+    enigma_benign_count = query.filter(enigma_reports__Pathogenicity__contains='Benign').count()
+    enigma_likely_benign_count = query.filter(enigma_reports__Pathogenicity__contains='Likely benign').count()
+    enigma_likely_pathogenic_count = query.filter(enigma_reports__Pathogenicity__contains='Likely pathogenic').count()
     query_brca1 = query.filter(Gene_Symbol='BRCA1')
-    brca1_enigma_pathogenic_count = query_brca1.filter(Pathogenicity='Pathogenic').count()
-    brca1_enigma_benign_count = query_brca1.filter(Pathogenicity__contains='Benign').count()
-    brca1_enigma_likely_benign_count = query_brca1.filter(Pathogenicity__contains='Likely benign').count()
-    brca1_enigma_likely_pathogenic_count = query_brca1.filter(Pathogenicity__contains='Likely pathogenic').count()
+    brca1_enigma_pathogenic_count = query_brca1.filter(enigma_reports__Pathogenicity='Pathogenic').count()
+    brca1_enigma_benign_count = query_brca1.filter(enigma_reports__Pathogenicity__contains='Benign').count()
+    brca1_enigma_likely_benign_count = query_brca1.filter(enigma_reports__Pathogenicity__contains='Likely benign').count()
+    brca1_enigma_likely_pathogenic_count = query_brca1.filter(enigma_reports__Pathogenicity__contains='Likely pathogenic').count()
     query_brca2 = query.filter(Gene_Symbol='BRCA2')
-    brca2_enigma_pathogenic_count = query_brca2.filter(Pathogenicity='Pathogenic').count()
-    brca2_enigma_benign_count = query_brca2.filter(Pathogenicity__contains='Benign').count()
-    brca2_enigma_likely_benign_count = query_brca2.filter(Pathogenicity__contains='Likely benign').count()
-    brca2_enigma_likely_pathogenic_count = query_brca2.filter(Pathogenicity__contains='Likely pathogenic').count()
+    brca2_enigma_pathogenic_count = query_brca2.filter(enigma_reports__Pathogenicity='Pathogenic').count()
+    brca2_enigma_benign_count = query_brca2.filter(enigma_reports__Pathogenicity__contains='Benign').count()
+    brca2_enigma_likely_benign_count = query_brca2.filter(enigma_reports__Pathogenicity__contains='Likely benign').count()
+    brca2_enigma_likely_pathogenic_count = query_brca2.filter(enigma_reports__Pathogenicity__contains='Likely pathogenic').count()
     response = JsonResponse({
         "total": total_count,
         "brca1": {
@@ -135,26 +135,6 @@ def vrid(request):
 
     response = JsonResponse({"data": {k: variant_data[k] for k in variant_data if k in relevant_keys}})
     response['Access-Control-Allow-Origin'] = '*'
-    return response
-
-
-def variantreps(request):
-    vr_reps = list(
-        VariantRepresentation.objects.raw("""
-        select VR.id, VR."Genomic_Coordinate_hg38", V.id as Variant_id, VR."Description" from data_variantrepresentation VR
-        inner join variant V on V."Genomic_Coordinate_hg38" = VR."Genomic_Coordinate_hg38"
-        """)
-    )
-
-    response = JsonResponse({
-        "count": len(vr_reps),
-        "data": list(
-            {'id': x.variant_id, 'Genomic_Coordinate_hg38': x.Genomic_Coordinate_hg38, 'vr_rep': x.Description}
-            for x in vr_reps
-        )
-    })
-    response['Access-Control-Allow-Origin'] = '*'
-
     return response
 
 

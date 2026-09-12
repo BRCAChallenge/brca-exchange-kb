@@ -5,15 +5,15 @@ Usage:
     python manage.py load_vcf [--vcf-out /path/to/vcf_out]
 
 Sources (in priority order for Variant fields):
-  1. ENIGMA          → variant, genomic_coordinates, variant_enigma
-  2. ClinVar         → variant (upsert), genomic_coordinates, variant_clinvar, report_clinvar
-  3. LOVD            → variant (upsert), genomic_coordinates, variant_lovd, report_lovd
-  4. exLOVD          → variant (upsert), genomic_coordinates, variant_exlovd
-  5. gnomAD v2       → variant, genomic_coordinates, variant_gnomad, report_gnomad (data_type=exome)
-  6. gnomAD v3       → variant, genomic_coordinates, variant_gnomad, report_gnomad (data_type=genome)
-  7. gnomAD v4       → variant, genomic_coordinates, variant_gnomad, report_gnomad (data_type=joint)
-  8. gnomAD v4.1 joint  → variant, genomic_coordinates, variant_gnomad, report_gnomad (data_type=joint)
-  9. gnomAD v4.1 exome  → variant, genomic_coordinates, variant_gnomad, report_gnomad (data_type=exome)
+  1. ENIGMA          → variant, variant_genomic_coordinates, variant_enigma
+  2. ClinVar         → variant (upsert), variant_genomic_coordinates, variant_clinvar, report_clinvar
+  3. LOVD            → variant (upsert), variant_genomic_coordinates, variant_lovd, report_lovd
+  4. exLOVD          → variant (upsert), variant_genomic_coordinates, variant_exlovd
+  5. gnomAD v2       → variant, variant_genomic_coordinates, variant_gnomad, report_gnomad (data_type=exome)
+  6. gnomAD v3       → variant, variant_genomic_coordinates, variant_gnomad, report_gnomad (data_type=genome)
+  7. gnomAD v4       → variant, variant_genomic_coordinates, variant_gnomad, report_gnomad (data_type=joint)
+  8. gnomAD v4.1 joint  → variant, variant_genomic_coordinates, variant_gnomad, report_gnomad (data_type=joint)
+  9. gnomAD v4.1 exome  → variant, variant_genomic_coordinates, variant_gnomad, report_gnomad (data_type=exome)
 """
 
 import csv
@@ -133,11 +133,6 @@ def populations_by_dataset(rec, dataset, exclude=frozenset()):
     return pops
 
 
-def ucsc_url(chrom, pos):
-    c = chrom if chrom.startswith('chr') else f'chr{chrom}'
-    return f'https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position={c}:{pos}-{pos}'
-
-
 _CHR_TO_NC = {
     '13': 'NC_000013.11', 'chr13': 'NC_000013.11',
     '17': 'NC_000017.11', 'chr17': 'NC_000017.11',
@@ -251,7 +246,7 @@ class Command(BaseCommand):
             'report_clinvar', 'variant_clinvar',
             'variant_enigma',
             'variant_other',
-            'genomic_coordinates',
+            'variant_genomic_coordinates',
             'variant',
         ]
         with connections[DB].cursor() as cur:
@@ -327,7 +322,7 @@ class Command(BaseCommand):
 
             self._upsert_coords(variant,
                 hgvs=genomic_hgvs(rec),
-                genome_browser_url=ucsc_url(rec.chrom, rec.pos),
+                end_pos=str(rec.pos + len(rec.ref) - 1),
                 chr=bare_chrom(rec.chrom), pos=str(rec.pos),
                 ref=rec.ref, alt=rec.alts[0] if rec.alts else '-',
             )
@@ -376,7 +371,7 @@ class Command(BaseCommand):
 
             self._upsert_coords(variant,
                 hgvs=genomic_hgvs(rec),
-                genome_browser_url=ucsc_url(rec.chrom, rec.pos),
+                end_pos=str(rec.pos + len(rec.ref) - 1),
                 chr=bare_chrom(rec.chrom), pos=str(rec.pos),
                 ref=rec.ref, alt=rec.alts[0] if rec.alts else '-',
             )
@@ -430,7 +425,7 @@ class Command(BaseCommand):
 
             self._upsert_coords(variant,
                 hgvs=genomic_hgvs(rec),
-                genome_browser_url=ucsc_url(rec.chrom, rec.pos),
+                end_pos=str(rec.pos + len(rec.ref) - 1),
                 chr=bare_chrom(rec.chrom), pos=str(rec.pos),
                 ref=rec.ref, alt=rec.alts[0] if rec.alts else '-',
             )
@@ -483,7 +478,7 @@ class Command(BaseCommand):
 
             self._upsert_coords(variant,
                 hgvs=genomic_hgvs(rec),
-                genome_browser_url=ucsc_url(rec.chrom, rec.pos),
+                end_pos=str(rec.pos + len(rec.ref) - 1),
                 chr=bare_chrom(rec.chrom), pos=str(rec.pos),
                 ref=rec.ref, alt=rec.alts[0] if rec.alts else '-',
             )
@@ -525,7 +520,7 @@ class Command(BaseCommand):
 
             self._upsert_coords(variant,
                 hgvs=genomic_hgvs(rec),
-                genome_browser_url=ucsc_url(rec.chrom, rec.pos),
+                end_pos=str(rec.pos + len(rec.ref) - 1),
                 chr=bare_chrom(rec.chrom), pos=str(rec.pos),
                 ref=rec.ref, alt=rec.alts[0] if rec.alts else '-',
             )
@@ -612,7 +607,7 @@ class Command(BaseCommand):
         self.stdout.write('')
         rows = [
             ('variant',              Variant),
-            ('genomic_coordinates',  Genomic_Coordinates),
+            ('variant_genomic_coordinates',  Genomic_Coordinates),
             ('variant_enigma',       Variant_in_ENIGMA),
             ('variant_clinvar',      Variant_in_ClinVar),
             ('report_clinvar',       Report_in_ClinVar),
@@ -652,7 +647,7 @@ class Command(BaseCommand):
 
             self._upsert_coords(variant,
                 hgvs=genomic_hgvs(rec),
-                genome_browser_url=ucsc_url(rec.chrom, rec.pos),
+                end_pos=str(rec.pos + len(rec.ref) - 1),
                 chr=bare_chrom(rec.chrom), pos=str(rec.pos),
                 ref=rec.ref, alt=rec.alts[0] if rec.alts else '-',
             )

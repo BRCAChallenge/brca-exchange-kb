@@ -7,7 +7,7 @@ Usage:
         --reports-tsv /path/to/reports_with_change_types.tsv
 
 Pass 1 (built TSV, one row per variant):
-    Populates: variant, genomic_coordinates, variant_enigma,
+    Populates: variant, variant_genomic_coordinates, variant_enigma,
                variant_clinvar, variant_lovd, variant_exlovd, variant_gnomad,
                analysis_priors, analysis_bayesdel,
                analysis_provisional_evidence_codes.
@@ -47,7 +47,7 @@ FLUSH_ORDER = [
     'analysis_provisional_evidence_codes',
     'analysis_bayesdel',
     'analysis_priors',
-    'genomic_coordinates',
+    'variant_genomic_coordinates',
     'variant',
 ]
 
@@ -93,11 +93,6 @@ def population_breakdown(row, dataset, source_suffix, pops):
     }
 
 
-def ucsc(chrom, pos):
-    c = chrom if chrom.startswith('chr') else f'chr{chrom}'
-    return f'https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position={c}:{pos}-{pos}'
-
-
 def flush():
     print('Flushing test_pipeline tables ...')
     with connections[DB].cursor() as cur:
@@ -125,20 +120,20 @@ def load_variant_row(row, digest, counts):
 
     with connections[DB].cursor() as cur:
         cur.execute(
-            '''INSERT INTO genomic_coordinates
-                   ("VRS_Digest_id", assembly, hgvs, genome_browser_url, chr, pos, ref, alt)
+            '''INSERT INTO variant_genomic_coordinates
+                   ("VRS_Digest", assembly, hgvs, chr, pos, end_pos, ref, alt)
                VALUES (%s,'GRCh38',%s,%s,%s,%s,%s,%s)''',
             [digest, f(row, 'Genomic_HGVS_38'),
-             ucsc(row['Chr'], row['Pos']),
-             row['Chr'], row['Pos'], row['Ref'], row['Alt']],
+             row['Chr'], row['Pos'], str(int(row['Pos']) + len(row['Ref']) - 1),
+             row['Ref'], row['Alt']],
         )
-    counts['genomic_coordinates'] += 1
+    counts['variant_genomic_coordinates'] += 1
 
     if 'ENIGMA' in sources:
         with connections[DB].cursor() as cur:
             cur.execute(
                 '''INSERT INTO variant_enigma
-                       ("VRS_Digest_id","Condition_ID_type","Condition_ID_value",
+                       ("VRS_Digest","Condition_ID_type","Condition_ID_value",
                         "Condition_category","Clinical_significance",
                         "Date_last_evaluated","Assertion_method",
                         "Assertion_method_citation","Clinical_significance_citations",
@@ -162,7 +157,7 @@ def load_variant_row(row, digest, counts):
         clinvar_url = f'https://www.ncbi.nlm.nih.gov/clinvar/variation/{clinvar_id}/' if clinvar_id != '-' else '-'
         with connections[DB].cursor() as cur:
             cur.execute(
-                'INSERT INTO variant_clinvar ("VRS_Digest_id","Source_URL") VALUES (%s,%s)',
+                'INSERT INTO variant_clinvar ("VRS_Digest","Source_URL") VALUES (%s,%s)',
                 [digest, clinvar_url],
             )
         counts['variant_clinvar'] += 1
@@ -173,7 +168,7 @@ def load_variant_row(row, digest, counts):
         with connections[DB].cursor() as cur:
             cur.execute(
                 '''INSERT INTO variant_lovd
-                       ("VRS_Digest_id","Source_URL","Variant_haplotype")
+                       ("VRS_Digest","Source_URL","Variant_haplotype")
                    VALUES (%s,%s,'-')''',
                 [digest, lovd_url],
             )
@@ -183,7 +178,7 @@ def load_variant_row(row, digest, counts):
         with connections[DB].cursor() as cur:
             cur.execute(
                 '''INSERT INTO variant_exlovd
-                       ("VRS_Digest_id","Posterior_P",
+                       ("VRS_Digest","Posterior_P",
                         "IARC_Class","Missense_Analysis_Prior_P",
                         "Combined_Prior_P","Segregation_LR",
                         "Pathology_LR","Co_Occurrence_LR","Case_Control_LR",
@@ -204,7 +199,7 @@ def load_variant_row(row, digest, counts):
     if 'GnomAD' in sources or 'GnomADv3' in sources:
         with connections[DB].cursor() as cur:
             cur.execute(
-                'INSERT INTO variant_gnomad ("VRS_Digest_id","Source_URL") VALUES (%s,\'-\')',
+                'INSERT INTO variant_gnomad ("VRS_Digest","Source_URL") VALUES (%s,\'-\')',
                 [digest],
             )
         counts['variant_gnomad'] += 1
@@ -274,7 +269,7 @@ def load_report_row(row, digest, counts):
         with connections[DB].cursor() as cur:
             cur.execute(
                 '''INSERT INTO report_clinvar
-                       ("VRS_Digest_id","Clinical_Significance","Date_Last_Updated",
+                       ("VRS_Digest","Clinical_Significance","Date_Last_Updated",
                         "DateSignificanceLastEvaluated","Submitter","SCV","SCV_Version",
                         "Allele_Origin","Method","Description","Summary_Evidence",
                         "Review_Status","Condition_Type","Condition_Value","Condition_DB_ID")
@@ -301,7 +296,7 @@ def load_report_row(row, digest, counts):
         with connections[DB].cursor() as cur:
             cur.execute(
                 '''INSERT INTO report_lovd
-                       ("VRS_Digest_id","Variant_frequency","Individuals",
+                       ("VRS_Digest","Variant_frequency","Individuals",
                         "Variant_effect","Genetic_origin","Submitters",
                         "Functional_analysis_technique","Functional_analysis_result",
                         "Created_date","Edited_date","DBID",
@@ -323,7 +318,7 @@ def load_report_row(row, digest, counts):
         with connections[DB].cursor() as cur:
             cur.execute(
                 '''INSERT INTO report_gnomad
-                       ("VRS_Digest_id", version, data_type, "Variant_id", "Flags",
+                       ("VRS_Digest", version, data_type, "Variant_id", "Flags",
                         "Allele_count", "Allele_number", "Allele_frequency",
                         faf95_popmax, faf95_popmax_population, populations, coverage)
                    VALUES (%s,'v2','exome',%s,%s,%s,%s,%s,%s,%s,%s::jsonb,'-')''',
@@ -343,7 +338,7 @@ def load_report_row(row, digest, counts):
         with connections[DB].cursor() as cur:
             cur.execute(
                 '''INSERT INTO report_gnomad
-                       ("VRS_Digest_id", version, data_type, "Variant_id", "Flags",
+                       ("VRS_Digest", version, data_type, "Variant_id", "Flags",
                         "Allele_count", "Allele_number", "Allele_frequency",
                         faf95_popmax, faf95_popmax_population, populations, coverage)
                    VALUES (%s,'v3','genome',%s,%s,%s,%s,%s,%s,%s,%s::jsonb,'-')''',
@@ -368,7 +363,7 @@ def backfill_condition_fields(reference_schema):
             "Condition_Value" = p."Condition_Value",
             "Condition_DB_ID" = p."Condition_DB_ID"
         FROM {reference_schema}.report_clinvar p
-        WHERE t."VRS_Digest_id" = p."VRS_Digest_id"
+        WHERE t."VRS_Digest" = p."VRS_Digest"
           AND t."SCV" = p."SCV"
           AND (t."Condition_Type"  = 'None'
             OR t."Condition_Value" = 'None'
@@ -383,10 +378,10 @@ def backfill_genomic_chr(reference_schema):
     """Copy chr from reference_schema where the TSV stored a bare chromosome number
     but the VCF pipeline stored it with a 'chr' prefix."""
     sql = f"""
-        UPDATE test_pipeline.genomic_coordinates t
+        UPDATE test_pipeline.variant_genomic_coordinates t
         SET chr = p.chr
-        FROM {reference_schema}.genomic_coordinates p
-        WHERE t."VRS_Digest_id" = p."VRS_Digest_id"
+        FROM {reference_schema}.variant_genomic_coordinates p
+        WHERE t."VRS_Digest" = p."VRS_Digest"
           AND t.assembly = p.assembly
           AND t.chr != p.chr
     """
@@ -401,7 +396,7 @@ def backfill_enigma_condition(reference_schema):
         UPDATE test_pipeline.variant_enigma t
         SET "Condition_ID_value" = p."Condition_ID_value"
         FROM {reference_schema}.variant_enigma p
-        WHERE t."VRS_Digest_id" = p."VRS_Digest_id"
+        WHERE t."VRS_Digest" = p."VRS_Digest"
           AND t."Condition_ID_value" = 'not provided'
     """
     with connections[DB].cursor() as cur:
@@ -416,7 +411,7 @@ def backfill_clinvar_source_url(reference_schema):
         UPDATE test_pipeline.variant_clinvar t
         SET "Source_URL" = p."Source_URL"
         FROM {reference_schema}.variant_clinvar p
-        WHERE t."VRS_Digest_id" = p."VRS_Digest_id"
+        WHERE t."VRS_Digest" = p."VRS_Digest"
     """
     with connections[DB].cursor() as cur:
         cur.execute(sql)
@@ -477,7 +472,7 @@ def main():
     updated = backfill_enigma_condition(args.reference_schema)
     print(f'  variant_enigma Condition_ID_value: {updated} rows updated')
     updated = backfill_genomic_chr(args.reference_schema)
-    print(f'  genomic_coordinates chr prefix: {updated} rows updated')
+    print(f'  variant_genomic_coordinates chr prefix: {updated} rows updated')
 
     print()
     for table in FLUSH_ORDER:

@@ -1,7 +1,6 @@
 from django.db import models
 from django.db.models import JSONField
 from django.contrib.postgres.fields import ArrayField
-from postgres_copy import CopyManager
 
 
 class LegacyJSONField(JSONField):
@@ -20,39 +19,6 @@ class LegacyJSONField(JSONField):
             return super().from_db_value(value, expression, connection)
         return value
 
-
-class ChangeType(models.Model):
-    """
-    Referenced by 0003_populate_database.py, whose actual operations are
-    disabled (operations = []) — kept only so the migration graph still
-    loads. Not used by any current model; not migration-managed.
-    """
-    name = models.TextField()
-
-    class Meta:
-        managed = False
-
-
-class MupitStructure(models.Model):
-    """
-    Referenced only via data/utilities.py's module-level import (used by
-    functions unrelated to migration 0025's actual RunPython operation).
-    Kept only so that import succeeds. Not migration-managed.
-    """
-    name = models.TextField()
-
-    class Meta:
-        managed = False
-
-
-class CurrentVariant(models.Model):
-    """
-    Referenced only via data/utilities.py's module-level import (used by
-    functions unrelated to migration 0025's actual RunPython operation).
-    Kept only so that import succeeds. Not migration-managed.
-    """
-    class Meta:
-        managed = False
 
 # ------------------------------------------------------------------------
 # --- Base models
@@ -106,22 +72,21 @@ class Variant(models.Model):
 
     class Meta:
         db_table = 'variant'
-        managed = False
 
 
 class Genomic_Coordinates(models.Model):
-    VRS_Digest = models.ForeignKey(Variant, on_delete=models.CASCADE, related_name='genomic_coordinates')
+    VRS_Digest = models.ForeignKey(Variant, on_delete=models.CASCADE, related_name='genomic_coordinates', db_column='VRS_Digest')
     assembly = models.TextField()
     hgvs = models.TextField()
-    genome_browser_url = models.TextField()
     chr = models.TextField()
     pos = models.TextField()
+    end_pos = models.TextField()
     ref = models.TextField()
     alt = models.TextField()
 
     class Meta:
-        db_table = 'genomic_coordinates'
-        managed = False
+        db_table = 'variant_genomic_coordinates'
+        unique_together = (('VRS_Digest', 'assembly'),)
 
 
 # ------------------------------------------------------------------------
@@ -130,95 +95,97 @@ class Genomic_Coordinates(models.Model):
 
 class Variant_in_ClinVar(models.Model):
     """ClinVar data for a variant."""
-    VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='clinvar_data')
+    VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='clinvar_data', db_column='VRS_Digest')
 
     Source_URL = models.TextField()
 
     class Meta:
         db_table = 'variant_clinvar'
-        managed = False
 
 
 class Variant_in_LOVD(models.Model):
     """LOVD (Leiden Open Variation Database) data for a variant."""
-    VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='lovd_data')
+    VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='lovd_data', db_column='VRS_Digest')
 
     Source_URL = models.TextField()
     Variant_haplotype = models.TextField()
 
     class Meta:
         db_table = 'variant_lovd'
-        managed = False
 
 
 class Variant_in_ExLOVD(models.Model):
     """exLOVD expert-curated BRCA1/2 data for a variant."""
-    VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='exlovd_data')
+    VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='exlovd_data', db_column='VRS_Digest')
 
-    Posterior_P = models.TextField(default='-')
-    IARC_Class = models.TextField(default='-')
-    Missense_Analysis_Prior_P = models.TextField(default='-')
-    Combined_Prior_P = models.TextField(default='-')
-    Segregation_LR = models.TextField(default='-')
+    Source_URL = models.TextField(null=True)
+    Exon = models.TextField(null=True)
+    DNA_Change = models.TextField(null=True)
+    BIC_DNA_Change = models.TextField(null=True)
+    Protein_Change = models.TextField(null=True)
+    DBID = models.TextField(null=True)
+    Posterior_P = models.TextField(default='-', null=True)
+    IARC_Class = models.TextField(default='-', null=True)
+    Missense_Analysis_Prior_P = models.TextField(default='-', null=True)
+    Combined_Prior_P = models.TextField(default='-', null=True)
+    Segregation_LR = models.TextField(default='-', null=True)
+    Splicing_Prior_P = models.TextField(null=True)
     Pathology_LR = models.TextField(null=True)
-    Co_Occurrence_LR = models.TextField(default='-')
+    Co_Occurrence_LR = models.TextField(default='-', null=True)
     Case_Control_LR = models.TextField(null=True)
-    Comments = models.TextField(default='-')
+    Product_Of_LRs = models.TextField(null=True)
+    Comments = models.TextField(default='-', null=True)
 
     class Meta:
         db_table = 'variant_exlovd'
-        managed = False
 
 
 class Variant_in_GnomAD(models.Model):
     """Per-variant gnomAD anchor row (one per variant across all versions)."""
-    VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='gnomad_data')
+    VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='gnomad_data', db_column='VRS_Digest')
 
-    Source_URL = models.TextField(default='-')
+    Source_URL = models.TextField(default='-', null=True)
 
     class Meta:
         db_table = 'variant_gnomad'
-        managed = False
 
 
 class Report_in_GnomAD(models.Model):
     """GnomAD frequency data — one row per variant per version and data type."""
-    VRS_Digest = models.ForeignKey(Variant_in_GnomAD, on_delete=models.CASCADE, related_name='gnomad_reports')
+    VRS_Digest = models.ForeignKey(Variant_in_GnomAD, on_delete=models.CASCADE, related_name='gnomad_reports', db_column='VRS_Digest')
 
-    version = models.TextField()
+    version = models.TextField(null=True)
     data_type = models.TextField(default='-')    # 'joint', 'genome', or 'exome'
-    Variant_id = models.TextField(default='-', db_index=True)
-    Flags = models.TextField(default='-')
+    Variant_id = models.TextField(default='-', null=True, db_index=True)
+    Flags = models.TextField(default='-', null=True)
     coverage = models.TextField(default='-')
-    Allele_count = models.TextField(default='-')
-    Allele_number = models.TextField(default='-')
-    Allele_frequency = models.TextField(default='-')
-    faf95_popmax = models.TextField(default='-')
-    faf95_popmax_population = models.TextField(default='-')
+    Allele_count = models.TextField(default='-', null=True)
+    Allele_number = models.TextField(default='-', null=True)
+    Allele_frequency = models.TextField(default='-', null=True)
+    faf95_popmax = models.TextField(default='-', null=True)
+    faf95_popmax_population = models.TextField(default='-', null=True)
     populations = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = 'report_gnomad'
-        managed = False
         unique_together = ('VRS_Digest', 'version', 'data_type')
 
 
 class Variant_in_Other(models.Model):
     """Data from other sources (functional assays, multifactorial, etc.)."""
-    VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='other_data')
+    VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='other_data', db_column='VRS_Digest')
 
     data_type = models.TextField(null=True)
     variant_data = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = 'variant_other'
-        managed = False
 
 
 
 class Variant_in_ENIGMA(models.Model):
     """ENIGMA-specific report data."""
-    VRS_Digest = models.ForeignKey(Variant, on_delete=models.CASCADE, related_name='enigma_reports')
+    VRS_Digest = models.ForeignKey(Variant, on_delete=models.CASCADE, related_name='enigma_reports', db_column='VRS_Digest')
     Condition_ID_type = models.TextField()
     Condition_ID_value = models.TextField()
     Condition_category = models.TextField()
@@ -235,12 +202,11 @@ class Variant_in_ENIGMA(models.Model):
 
     class Meta:
         db_table = 'variant_enigma'
-        managed = False
 
 
 class Report_in_ClinVar(models.Model):
     """ClinVar-specific report data."""
-    VRS_Digest = models.ForeignKey(Variant_in_ClinVar, on_delete=models.CASCADE, related_name='clinvar_reports')
+    VRS_Digest = models.ForeignKey(Variant_in_ClinVar, on_delete=models.CASCADE, related_name='clinvar_reports', db_column='VRS_Digest')
 
     Clinical_Significance = models.TextField()
     Date_Last_Updated = models.TextField()
@@ -259,12 +225,11 @@ class Report_in_ClinVar(models.Model):
 
     class Meta:
         db_table = 'report_clinvar'
-        managed = False
 
 
 class Report_in_LOVD(models.Model):
     """LOVD-specific report data."""
-    VRS_Digest = models.ForeignKey(Variant_in_LOVD, on_delete=models.CASCADE, related_name='lovd_reports')
+    VRS_Digest = models.ForeignKey(Variant_in_LOVD, on_delete=models.CASCADE, related_name='lovd_reports', db_column='VRS_Digest')
 
     Variant_frequency = models.TextField()
     Individuals = models.TextField()
@@ -282,7 +247,6 @@ class Report_in_LOVD(models.Model):
 
     class Meta:
         db_table = 'report_lovd'
-        managed = False
 
 
 # ------------------------------------------------------------------------
@@ -302,7 +266,7 @@ class Paper(models.Model):
 
 
 class Variant_in_Paper(models.Model):
-    VRS_Digest = models.ForeignKey(Variant, on_delete=models.CASCADE)
+    VRS_Digest = models.ForeignKey(Variant, on_delete=models.CASCADE, db_column='VRS_Digest')
     Paper = models.ForeignKey(Paper, on_delete=models.CASCADE)
     mentions = ArrayField(models.TextField())
     variant_mentioned_as = ArrayField(models.TextField())
@@ -313,49 +277,63 @@ class Variant_in_Paper(models.Model):
 
 
 
-class InSilicoPriors(models.Model):
-    """In silico prior probabilities."""
-
-    class Meta:
-        db_table = 'data_insilicopriors'
-        managed = False
+# VEP consequence_terms that indicate a variant introduces a premature termination codon.
+# Splice-altering terms are deliberately excluded: VEP's consequence call for those doesn't
+# predict the resulting spliced transcript, so there's no reliable basis for a PTC call here.
+PTC_CONSEQUENCE_TERMS = {'stop_gained', 'frameshift_variant'}
 
 
-class VariantRepresentation(models.Model):
-    """Variant representation in different formats."""
-
-    class Meta:
-        db_table = 'data_variantrepresentation'
-        managed = False
+class AnalysisVEPQuerySet(models.QuerySet):
+    def introduces_ptc(self):
+        q = models.Q()
+        for term in PTC_CONSEQUENCE_TERMS:
+            q |= models.Q(consequences__regex=rf'(^|,){term}(,|$)')
+        return self.filter(q)
 
 
 class AnalysisVEP(models.Model):
     """VEP annotation results for a variant."""
+    objects       = AnalysisVEPQuerySet.as_manager()
     VRS_Digest    = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE,
-                                         related_name='vep_analysis')
+                                         related_name='vep_analysis', db_column='VRS_Digest')
     variant_class = models.TextField(null=True)
     variant_type  = models.TextField(null=True)
+    # VEP consequence_terms for the Variant.Reference_Sequence RefSeq transcript, comma-separated
+    consequences  = models.TextField(null=True)
+    # VEP HGVSp notation for the Variant.Reference_Sequence RefSeq transcript, e.g.
+    # "NP_009225.1:p.Gln356GlufsTer9"
+    hgvsp         = models.TextField(null=True)
+    # GRCh38 1-based genomic position of the first base of the premature stop codon
+    # described by hgvsp; only set when consequences intersects PTC_CONSEQUENCE_TERMS
+    # and the position could be resolved. Chromosome is implied by Gene_Symbol
+    # (BRCA1 -> chr17, BRCA2 -> chr13).
+    ptc_genomic_pos = models.IntegerField(null=True)
+    VA_Spec       = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = 'analysis_vep'
-        managed = False
+
+    @property
+    def introduces_ptc(self):
+        terms = set((self.consequences or '').split(','))
+        return bool(terms & PTC_CONSEQUENCE_TERMS)
 
 
 class AnalysisBayesDel(models.Model):
     """BayesDel scores for a variant."""
     VRS_Digest               = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE,
-                                                     related_name='bayesdel_analysis')
+                                                     related_name='bayesdel_analysis', db_column='VRS_Digest')
     BayesDel_nsfp33a_noAF   = models.TextField(null=True)
+    VA_Spec                 = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = 'analysis_bayesdel'
-        managed = False
 
 
 class AnalysisSpliceAI(models.Model):
     """SpliceAI scores for a variant."""
     VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE,
-                                      related_name='spliceai_analysis')
+                                      related_name='spliceai_analysis', db_column='VRS_Digest')
     DS_AG  = models.TextField(null=True)
     DS_AL  = models.TextField(null=True)
     DS_DG  = models.TextField(null=True)
@@ -365,29 +343,33 @@ class AnalysisSpliceAI(models.Model):
     DP_DG  = models.TextField(null=True)
     DP_DL  = models.TextField(null=True)
     result = models.TextField(null=True)
+    VA_Spec = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = 'analysis_spliceai'
-        managed = False
 
 
 class AnalysisProvisionalEvidenceCodes(models.Model):
-    """Provisional evidence codes for a variant."""
-    VRS_Digest          = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE,
-                                               related_name='provisional_evidence_codes')
+    """Provisional evidence codes for a variant. Multiple rows per variant,
+    one per method_name."""
+    VRS_Digest          = models.ForeignKey(Variant, on_delete=models.CASCADE,
+                                             related_name='provisional_evidence_codes', db_column='VRS_Digest')
     popfreq_code        = models.TextField(null=True)
     popfreq_description = models.TextField(null=True)
-    method_name         = models.TextField(null=True)
+    method_name         = models.TextField()
+    gnomad_version      = models.TextField(null=True)
+    gnomad_data_type    = models.TextField(null=True)
+    VA_Spec             = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = 'analysis_provisional_evidence_codes'
-        managed = False
+        unique_together = (('VRS_Digest', 'method_name'),)
 
 
 class AnalysisPriors(models.Model):
     """In silico prior probability fields shown in the UI."""
     VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE,
-                                      related_name='priors_analysis')
+                                      related_name='priors_analysis', db_column='VRS_Digest')
 
     varLoc                        = models.TextField(null=True)
     applicablePrior               = models.TextField(null=True)
@@ -428,9 +410,10 @@ class AnalysisPriors(models.Model):
     refRefAccSeq                  = models.TextField(null=True)
     altRefAccSeq                  = models.TextField(null=True)
 
+    VA_Spec                       = models.JSONField(null=True, blank=True)
+
     class Meta:
         db_table = 'analysis_priors'
-        managed = False
 
 
 class EnigmaDomain(models.Model):
@@ -443,5 +426,4 @@ class EnigmaDomain(models.Model):
     end      = models.IntegerField()
 
     class Meta:
-        db_table = 'enigma_domain'
-        managed = False
+        db_table = 'data_enigma_domain'

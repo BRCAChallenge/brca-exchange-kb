@@ -40,7 +40,7 @@ def cur(conn):
 
 def test_pk_is_vrs_digest(cur):
     pk = get_pk_columns(cur, OLD, TABLE)
-    assert pk == ['VRS_Digest_id']
+    assert pk == ['VRS_Digest']
 
 
 def test_columns_match_across_schemas(cur):
@@ -53,22 +53,22 @@ def test_columns_match_across_schemas(cur):
 
 
 def test_no_rows_deleted(cur):
-    """Every row in test_pipeline must appear in pipeline (same VRS_Digest_id)."""
+    """Every row in test_pipeline must appear in pipeline (same VRS_Digest)."""
     cur.execute(f"""
         SELECT COUNT(*) FROM "{OLD}"."{TABLE}" o
-        LEFT JOIN "{NEW}"."{TABLE}" n ON n."VRS_Digest_id" = o."VRS_Digest_id"
-        WHERE n."VRS_Digest_id" IS NULL
+        LEFT JOIN "{NEW}"."{TABLE}" n ON n."VRS_Digest" = o."VRS_Digest"
+        WHERE n."VRS_Digest" IS NULL
     """)
     deleted = cur.fetchone()['count']
     assert deleted == 0, f"{deleted} rows in {OLD}.{TABLE} are absent from {NEW}.{TABLE}"
 
 
 def test_no_rows_added(cur):
-    """Every row in pipeline must appear in test_pipeline (same VRS_Digest_id)."""
+    """Every row in pipeline must appear in test_pipeline (same VRS_Digest)."""
     cur.execute(f"""
         SELECT COUNT(*) FROM "{NEW}"."{TABLE}" n
-        LEFT JOIN "{OLD}"."{TABLE}" o ON o."VRS_Digest_id" = n."VRS_Digest_id"
-        WHERE o."VRS_Digest_id" IS NULL
+        LEFT JOIN "{OLD}"."{TABLE}" o ON o."VRS_Digest" = n."VRS_Digest"
+        WHERE o."VRS_Digest" IS NULL
     """)
     added = cur.fetchone()['count']
     assert added == 0, f"{added} rows in {NEW}.{TABLE} are absent from {OLD}.{TABLE}"
@@ -77,7 +77,7 @@ def test_no_rows_added(cur):
 def test_shared_row_count(cur):
     cur.execute(f"""
         SELECT COUNT(*) FROM "{OLD}"."{TABLE}" o
-        JOIN "{NEW}"."{TABLE}" n ON n."VRS_Digest_id" = o."VRS_Digest_id"
+        JOIN "{NEW}"."{TABLE}" n ON n."VRS_Digest" = o."VRS_Digest"
     """)
     shared = cur.fetchone()['count']
     assert shared == EXPECTED_ROW_COUNT, (

@@ -1,5 +1,5 @@
 """
-Populate enigma_domain with the ENIGMA Consortium functional domains of
+Populate data_enigma_domain with the ENIGMA Consortium functional domains of
 potential clinical importance for BRCA1 and BRCA2.
 
 The table is truncated and reloaded on each run so the data stays in sync
@@ -24,14 +24,14 @@ DOMAINS = [
               envvar='PIPELINE_DB_URL', show_default=True,
               help='PostgreSQL connection URL for the pipeline DB')
 @click.option('--schema', default='pipeline', show_default=True,
-              help='Schema containing enigma_domain')
+              help='Schema containing data_enigma_domain')
 def main(db_url, schema):
     conn = psycopg2.connect(db_url, options=f'-c search_path={schema}')
     try:
         with conn.cursor() as cur:
-            cur.execute('TRUNCATE enigma_domain RESTART IDENTITY')
+            cur.execute('TRUNCATE data_enigma_domain RESTART IDENTITY')
             cur.executemany(
-                """INSERT INTO enigma_domain (gene, name, chrom, assembly, start, "end")
+                """INSERT INTO data_enigma_domain (gene, name, chrom, assembly, start, "end")
                    VALUES (%s, %s, %s, %s, %s, %s)""",
                 DOMAINS,
             )

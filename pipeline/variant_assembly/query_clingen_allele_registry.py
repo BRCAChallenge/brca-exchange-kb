@@ -12,7 +12,7 @@ HGVS string, then populate variant fields:
   - Gene_Symbol     ← geneSymbol from the MANE Select transcriptAllele (only set when
                        current value is '-', to avoid overwriting authoritative sources)
 
-Also inserts a GRCh37 row into genomic_coordinates for each genomicAllele
+Also inserts a GRCh37 row into variant_genomic_coordinates for each genomicAllele
 whose referenceGenome is 'GRCh37' (skipped if row already exists).
 
 Variants that already have a CA_ID are skipped unless --overwrite is set.
@@ -114,16 +114,10 @@ def _synonyms(data):
     return '|'.join(terms) if terms else '-'
 
 
-def _ucsc_url(chrom, pos, assembly):
-    db = 'hg38' if assembly == 'GRCh38' else 'hg19'
-    c = chrom if str(chrom).startswith('chr') else f'chr{chrom}'
-    return f'https://genome.ucsc.edu/cgi-bin/hgTracks?db={db}&position={c}:{pos}-{pos}'
-
-
 def _grch37_coords(data, vrs_digest):
-    """Return a list of genomic_coordinates rows for GRCh37 genomicAlleles.
+    """Return a list of variant_genomic_coordinates rows for GRCh37 genomicAlleles.
 
-    Each row is a dict ready for INSERT into genomic_coordinates.
+    Each row is a dict ready for INSERT into variant_genomic_coordinates.
     The NC_ accession HGVS is preferred; falls back to the first hgvs entry.
     """
     rows = []
@@ -137,13 +131,14 @@ def _grch37_coords(data, vrs_digest):
         alt   = coords.get('allele', '-')
         hgvs_list = ga.get('hgvs', [])
         hgvs  = next((h for h in hgvs_list if h.startswith('NC_')), hgvs_list[0] if hgvs_list else '-')
+        end_pos = str(int(pos) + len(ref) - 1) if pos != '-' and ref != '-' else '-'
         rows.append({
-            'VRS_Digest_id': vrs_digest,
+            'VRS_Digest': vrs_digest,
             'assembly':      'GRCh37',
             'hgvs':          hgvs,
-            'genome_browser_url': _ucsc_url(chrom, pos, 'GRCh37'),
             'chr':  chrom,
             'pos':  pos,
+            'end_pos': end_pos,
             'ref':  ref,
             'alt':  alt,
         })
@@ -173,7 +168,7 @@ def _extract(data, vrs_digest):
               envvar='PIPELINE_DB_URL', show_default=True,
               help='PostgreSQL connection URL for the pipeline DB')
 @click.option('--schema', default='pipeline', show_default=True,
-              help='Schema containing variant and genomic_coordinates')
+              help='Schema containing variant and variant_genomic_coordinates')
 @click.option('--overwrite', is_flag=True, default=False,
               help='Update variants that already have a CA_ID')
 def main(db_url, schema, overwrite):
@@ -184,16 +179,16 @@ def main(db_url, schema, overwrite):
         with conn.cursor() as cur:
             if overwrite:
                 cur.execute("""
-                    SELECT gc."VRS_Digest_id", gc.hgvs
-                    FROM genomic_coordinates gc
+                    SELECT gc."VRS_Digest", gc.hgvs
+                    FROM variant_genomic_coordinates gc
                     WHERE gc.assembly = 'GRCh38'
                       AND gc.hgvs IS NOT NULL AND gc.hgvs <> ''
                 """)
             else:
                 cur.execute("""
-                    SELECT gc."VRS_Digest_id", gc.hgvs
-                    FROM genomic_coordinates gc
-                    JOIN variant v ON v."VRS_Digest" = gc."VRS_Digest_id"
+                    SELECT gc."VRS_Digest", gc.hgvs
+                    FROM variant_genomic_coordinates gc
+                    JOIN variant v ON v."VRS_Digest" = gc."VRS_Digest"
                     WHERE gc.assembly = 'GRCh38'
                       AND gc.hgvs IS NOT NULL AND gc.hgvs <> ''
                       AND (v."CA_ID" IS NULL OR v."CA_ID" = '')
@@ -287,12 +282,12 @@ def main(db_url, schema, overwrite):
                 batch = coord_inserts[i : i + BATCH_SIZE]
                 psycopg2.extras.execute_values(
                     cur,
-                    """INSERT INTO genomic_coordinates
-                           ("VRS_Digest_id", assembly, hgvs, genome_browser_url, chr, pos, ref, alt)
+                    """INSERT INTO variant_genomic_coordinates
+                           ("VRS_Digest", assembly, hgvs, chr, pos, end_pos, ref, alt)
                        VALUES %s
-                       ON CONFLICT ("VRS_Digest_id", assembly) DO NOTHING""",
-                    [(r['VRS_Digest_id'], r['assembly'], r['hgvs'],
-                      r['genome_browser_url'], r['chr'], r['pos'], r['ref'], r['alt'])
+                       ON CONFLICT ("VRS_Digest", assembly) DO NOTHING""",
+                    [(r['VRS_Digest'], r['assembly'], r['hgvs'],
+                      r['chr'], r['pos'], r['end_pos'], r['ref'], r['alt'])
                      for r in batch],
                 )
 

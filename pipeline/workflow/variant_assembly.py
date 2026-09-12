@@ -11,7 +11,6 @@ from luigi.util import requires
 
 luigi.auto_namespace(scope=__name__)
 
-from common import config as brca_config
 from workflow import pipeline_utils
 from workflow.pipeline_common import PipelineParams
 
@@ -557,25 +556,47 @@ class VRSAnnotateGnomAD(VCFAssemblyTask):
         )
 
 
-class DownloadGnomADCoverage(VCFAssemblyTask):
-    """Download gnomAD genome + exome coverage and write a combined weighted-mean parquet.
+class DownloadGnomADCoverage(GnomADTask):
+    """Provide the gnomAD coverage parquets used for popfreq evidence-code coverage checks:
+    the combined v4.1 joint (exome+genome) weighted-mean parquet, plus the per-source V4
+    exome and V3 genome gene-region parquets.
 
-    Also writes per-source parquets for the V4 exome and V3 genome coverage.
-    Disabled by default; pass --DownloadGnomADCoverage-enabled true to run.
+    Default: download the pre-built parquets from brcaexchange.org -- the same files
+    download_resources_files.sh stages into the resources directory, so this is normally
+    a fast no-op (the Luigi targets are already satisfied by the time this task runs).
+    Pass --DownloadGnomADCoverage-compute-new true to instead recompute them from raw
+    gnomAD coverage data via download_coverage_v4.py (slow -- downloads and reprocesses
+    full genome/exome coverage summaries), e.g. to refresh against a newer gnomAD release.
+    When computed, the estimation script writes into this release's own gnomAD working
+    directory first; on success the three parquets are copied into the resources directory
+    (coverage_output/exome_coverage_output/genome_coverage_output -- the paths
+    CoverageParquet/CoverageParquetV4Exome/CoverageParquetV3Genome in variant_analysis.py
+    read from), so later releases can reuse them without recomputing.
     """
-    enabled = luigi.BoolParameter(default=False)
+    compute_new = luigi.BoolParameter(
+        default=False,
+        description='Recompute coverage from raw gnomAD data instead of downloading the pre-built parquet')
     gene_config = luigi.Parameter(
         default=os.path.join(_pipeline_dir, 'workflow', 'gene_config_brca_only.txt'),
         description='Gene config file with chr/start_hg38/end_hg38 columns')
     coverage_output = luigi.Parameter(
-        default=os.path.join(_pipeline_dir, '..', '..', 'resources', 'gnomADv4.1.coverage.joint.parquet'),
-        description='Output path for the combined weighted-mean coverage parquet')
+        default=os.path.join(_RESOURCES_DIR, 'gnomADv4.1.coverage.joint.parquet'),
+        description='Destination path (in the resources directory) for the combined weighted-mean coverage parquet')
     exome_coverage_output = luigi.Parameter(
-        default=os.path.join(_pipeline_dir, '..', '..', 'resources', 'gnomADv4.1.coverage.exome.parquet'),
-        description='Output path for the V4 exome gene-region coverage parquet')
+        default=os.path.join(_RESOURCES_DIR, 'gnomADv4.1.coverage.exome.parquet'),
+        description='Destination path (in the resources directory) for the V4 exome gene-region coverage parquet')
     genome_coverage_output = luigi.Parameter(
-        default=os.path.join(_pipeline_dir, '..', '..', 'resources', 'gnomADv3.1.coverage.genome.parquet'),
-        description='Output path for the V3 genome gene-region coverage parquet')
+        default=os.path.join(_RESOURCES_DIR, 'gnomADv3.1.coverage.genome.parquet'),
+        description='Destination path (in the resources directory) for the V3 genome gene-region coverage parquet')
+    coverage_joint_url = luigi.Parameter(
+        default='https://brcaexchange.org/backend/downloads/resources/gnomADv4.1.coverage.joint.parquet',
+        description='URL to download the pre-built combined weighted-mean coverage parquet from')
+    coverage_exome_url = luigi.Parameter(
+        default='https://brcaexchange.org/backend/downloads/resources/gnomADv4.1.coverage.exome.parquet',
+        description='URL to download the pre-built V4 exome gene-region coverage parquet from')
+    coverage_genome_url = luigi.Parameter(
+        default='https://brcaexchange.org/backend/downloads/resources/gnomADv3.1.coverage.genome.parquet',
+        description='URL to download the pre-built V3 genome gene-region coverage parquet from')
 
     def output(self):
         return {
@@ -585,18 +606,44 @@ class DownloadGnomADCoverage(VCFAssemblyTask):
         }
 
     def run(self):
-        if not self.enabled:
-            return
+        if self.compute_new:
+            self._compute_new()
+        else:
+            self._download_prebuilt()
+
+    def _download_prebuilt(self):
+        for url, resource_path in (
+            (self.coverage_joint_url,  self.coverage_output),
+            (self.coverage_exome_url,  self.exome_coverage_output),
+            (self.coverage_genome_url, self.genome_coverage_output),
+        ):
+            resource_path = os.path.normpath(resource_path)
+            os.makedirs(os.path.dirname(resource_path), exist_ok=True)
+            self._download_file(url, resource_path)
+
+    def _compute_new(self):
+        joint_scratch  = os.path.join(self.gnomad_file_dir, os.path.basename(self.coverage_output))
+        exome_scratch  = os.path.join(self.gnomad_file_dir, os.path.basename(self.exome_coverage_output))
+        genome_scratch = os.path.join(self.gnomad_file_dir, os.path.basename(self.genome_coverage_output))
         script = os.path.join(_pipeline_dir, 'gnomad', 'download_coverage_v4.py')
         args = [
             'python', script,
             '-g', self.gene_config,
-            '-c', os.path.normpath(self.coverage_output),
-            '--exome-coverage-output', os.path.normpath(self.exome_coverage_output),
-            '--genome-coverage-output', os.path.normpath(self.genome_coverage_output),
+            '-c', joint_scratch,
+            '--exome-coverage-output', exome_scratch,
+            '--genome-coverage-output', genome_scratch,
             '-v',
         ]
         self._run_process_with_pipeline_path(args)
+
+        for scratch_path, resource_path in (
+            (joint_scratch,  self.coverage_output),
+            (exome_scratch,  self.exome_coverage_output),
+            (genome_scratch, self.genome_coverage_output),
+        ):
+            resource_path = os.path.normpath(resource_path)
+            os.makedirs(os.path.dirname(resource_path), exist_ok=True)
+            shutil.copy(scratch_path, resource_path)
 
 
 @requires(DownloadGnomADCoverage)
@@ -677,22 +724,25 @@ class VRSAnnotateGnomADv41(VCFAssemblyTask):
 
     def run(self):
         joint_in, exome_in = self.input()
-        self._vrs_annotate(joint_in.path,
-                           self.output()["joint_vcf"].path,
-                           self.output()["joint_pkl"].path)
-        # gnomAD v4.1 exome ships with VRS_Allele_IDs already in the header;
-        # strip them so vrs-annotate can add its own.
+        # gnomAD v4.1 joint and exome VCFs both ship with VRS_Allele_IDs
+        # (and related VRS_* fields) already in the header; strip them
+        # first so vrs-annotate can add its own instead of hitting a
+        # duplicate-header error.
+        self._vrs_annotate_stripping_gnomad_headers(
+            joint_in.path, self.output()["joint_vcf"].path, self.output()["joint_pkl"].path)
+        self._vrs_annotate_stripping_gnomad_headers(
+            exome_in.path, self.output()["exome_vcf"].path, self.output()["exome_pkl"].path)
+
+    def _vrs_annotate_stripping_gnomad_headers(self, input_vcf, output_vcf_gz, output_pkl):
         with tempfile.NamedTemporaryFile(suffix='.vcf', delete=False) as tmp:
             stripped = tmp.name
         try:
             pipeline_utils.run_process([
                 'bcftools', 'annotate', '-x',
                 'INFO/VRS_Allele_IDs,INFO/VRS_Starts,INFO/VRS_Ends,INFO/VRS_States',
-                '-o', stripped, exome_in.path
+                '-o', stripped, input_vcf
             ])
-            self._vrs_annotate(stripped,
-                               self.output()["exome_vcf"].path,
-                               self.output()["exome_pkl"].path)
+            self._vrs_annotate(stripped, output_vcf_gz, output_pkl)
         finally:
             os.unlink(stripped)
 
@@ -714,7 +764,7 @@ class LoadVCFsToDatabase(VCFAssemblyTask):
     """Call the load_vcf Django management command to load all VCFs into the pipeline DB."""
 
     django_dir = luigi.Parameter(
-        default='/data/new_schema/code/django',
+        default=os.path.join(_pipeline_dir, '..', 'django'),
         description='Directory containing Django manage.py')
 
     def output(self):
@@ -722,10 +772,9 @@ class LoadVCFsToDatabase(VCFAssemblyTask):
 
     def run(self):
         enigma_in, clinvar_in, lovd_in, exlovd_in, gnomad_in, assays_in, gnomad_v41_in = self.input()
-        gene_config = os.path.join(_pipeline_dir, 'workflow', 'gene_config_brca_only.txt')
         args = [
             sys.executable, "manage.py", "load_vcf", "--skip-checks",
-            "--gene-config",             gene_config,
+            "--gene-config",             self.cfg.gene_config_path,
             "--enigma-vcf",              enigma_in["vcf"].path,
             "--enigma-pkl",              enigma_in["pkl"].path,
             "--clinvar-vcf",             clinvar_in["vcf"].path,
@@ -769,8 +818,7 @@ class ExtractVaraicoBRCARegions(VCFAssemblyTask):
         return luigi.LocalTarget(os.path.join(self.varaico_dir, "varaico_brca_raw.tsv"))
 
     def run(self):
-        gene_config = brca_config.load_config(
-            os.path.join(_pipeline_dir, 'workflow', 'gene_config_brca_only.txt'))
+        gene_config = self.cfg.gene_metadata
 
         header_written = False
         with open(self.output().path, "w") as out_f:
@@ -810,8 +858,7 @@ class FilterVaraicoToGeneBoundaries(VCFAssemblyTask):
         }
 
     def run(self):
-        gene_config = brca_config.load_config(
-            os.path.join(_pipeline_dir, 'workflow', 'gene_config_brca_only.txt'))
+        gene_config = self.cfg.gene_metadata
         boundaries = {
             f"chr{row['chr']}": (int(row['start_hg38']), int(row['end_hg38']))
             for _, row in gene_config.iterrows()
@@ -886,7 +933,7 @@ class VRSAnnotateVaraico(VCFAssemblyTask):
 
 @requires(LoadVCFsToDatabase)
 class ComputeGenomicHGVS(VCFAssemblyTask):
-    """Populate genomic_coordinates.hgvs with normalized genomic HGVS strings."""
+    """Populate variant_genomic_coordinates.hgvs with normalized genomic HGVS strings."""
 
     def output(self):
         return luigi.LocalTarget(os.path.join(self.vcf_dir, "compute_genomic_hgvs.done"))
@@ -907,7 +954,7 @@ class ComputeGenomicHGVS(VCFAssemblyTask):
 class QueryClinGenAlleleRegistry(VCFAssemblyTask):
     """Populate variant CA_ID, title, HGVS_cDNA, ensembl_cdna, HGVS_Protein,
     ensembl_protein, and Synonyms from the ClinGen Allele Registry, and insert
-    GRCh37 rows into genomic_coordinates."""
+    GRCh37 rows into variant_genomic_coordinates."""
 
     def output(self):
         return luigi.LocalTarget(os.path.join(self.vcf_dir, "query_clingen_allele_registry.done"))
@@ -932,7 +979,7 @@ class RunPseudonymGenerator(VCFAssemblyTask):
 
     Reads variants directly from the pipeline DB and writes enriched fields
     (Reference_Sequence, HGVS_cDNA, HGVS_Protein, CA_ID, Synonyms, GRCh37
-    genomic_coordinates) back to the DB."""
+    variant_genomic_coordinates) back to the DB."""
 
     db_url = luigi.Parameter(
         default='postgresql://postgres:postgres@localhost/storage.pg',
@@ -943,12 +990,11 @@ class RunPseudonymGenerator(VCFAssemblyTask):
 
     def run(self):
         script = os.path.join(_pipeline_dir, "variant_assembly", "pseudonym_generator.py")
-        gene_config = os.path.join(_pipeline_dir, 'workflow', 'gene_config_brca_only.txt')
         args = [
             sys.executable, script,
             "--db-url",    self.db_url,
             "--schema",    self.cfg.db_schema,
-            "--configfile", gene_config,
+            "--configfile", self.cfg.gene_config_path,
             "--resources",  self.cfg.resources_dir,
         ]
         os.environ['HGVS_SEQREPO_DIR'] = self.cfg.seq_repo_dir
@@ -962,7 +1008,7 @@ class RunPseudonymGenerator(VCFAssemblyTask):
 ###############################################
 
 class LoadEnigmaDomains(VCFAssemblyTask):
-    """Populate enigma_domain with ENIGMA CI functional domain coordinates."""
+    """Populate data_enigma_domain with ENIGMA CI functional domain coordinates."""
 
     def output(self):
         return luigi.LocalTarget(os.path.join(self.vcf_dir, "load_enigma_domains.done"))
@@ -986,12 +1032,12 @@ class LoadVaraicoPapersToDatabase(VCFAssemblyTask):
     variant_in_paper for varaico-mined BRCA1/BRCA2 variants already present in `variant`.
 
     Ordered as the final step of VCFAssembly: depends on every other task that
-    populates or enriches `variant`/`genomic_coordinates` (LoadVCFsToDatabase,
+    populates or enriches `variant`/`variant_genomic_coordinates` (LoadVCFsToDatabase,
     QueryClinGenAlleleRegistry, LoadEnigmaDomains, RunPseudonymGenerator), not just
     LoadVCFsToDatabase, so it always runs last instead of racing them."""
 
     django_dir = luigi.Parameter(
-        default='/data/new_schema/code/django',
+        default=os.path.join(_pipeline_dir, '..', 'django'),
         description='Directory containing Django manage.py')
 
     def output(self):

@@ -462,7 +462,7 @@ def _normalize_gene_symbol(gene_symbol, known_genes):
 
 
 def _load_rows_from_db(conn, schema):
-    """Return list of row dicts from DB (variant JOIN genomic_coordinates GRCh38)."""
+    """Return list of row dicts from DB (variant JOIN variant_genomic_coordinates GRCh38)."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(f"""
             SELECT
@@ -476,8 +476,8 @@ def _load_rows_from_db(conn, schema):
                 COALESCE(v."HGVS_cDNA",  '-') AS "HGVS_cDNA",
                 COALESCE(v."Synonyms",   '-') AS "Synonyms"
             FROM {schema}.variant v
-            JOIN {schema}.genomic_coordinates gc
-              ON gc."VRS_Digest_id" = v."VRS_Digest"
+            JOIN {schema}.variant_genomic_coordinates gc
+              ON gc."VRS_Digest" = v."VRS_Digest"
              AND gc.assembly = 'GRCh38'
             WHERE gc.chr IS NOT NULL AND gc.pos IS NOT NULL
               AND gc.ref IS NOT NULL AND gc.alt IS NOT NULL
@@ -513,13 +513,20 @@ def _write_rows_to_db(conn, schema, processed_rows):
 
             hg37_hgvs = row.get(GENOMIC_HGVS_HG37_COL) or row.get(PYHGVS_GENOMIC_COORDINATE_37_COL)
             if hg37_hgvs and str(hg37_hgvs).strip() not in ('', 'None', '-'):
+                # chr/ref/alt carry over unchanged from the GRCh38 row (same
+                # chromosome, same alleles) — only the position moves between
+                # builds, which is why hg37 start/end are computed separately.
                 cur.execute(f"""
-                    INSERT INTO {schema}.genomic_coordinates
-                        ("VRS_Digest_id", assembly, hgvs)
-                    VALUES (%s, 'GRCh37', %s)
-                    ON CONFLICT ("VRS_Digest_id", assembly) DO UPDATE
+                    INSERT INTO {schema}.variant_genomic_coordinates
+                        ("VRS_Digest", assembly, hgvs, chr, pos, end_pos, ref, alt)
+                    VALUES (%s, 'GRCh37', %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT ("VRS_Digest", assembly) DO UPDATE
                         SET hgvs = EXCLUDED.hgvs
-                """, [digest, hg37_hgvs])
+                """, [
+                    digest, hg37_hgvs,
+                    row.get(CHR_COL), row.get(PYHGVS_HG37_START_COL),
+                    row.get(PYHGVS_HG37_END_COL), row.get(REF_COL), row.get(ALT_COL),
+                ])
                 if cur.rowcount:
                     upserted_gc += 1
 
