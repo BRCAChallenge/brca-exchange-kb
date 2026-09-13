@@ -137,17 +137,50 @@ def test_build_gnomad_maps_fields_and_uppercases_subpopulation():
         'AC': 12,
         'AC_hom': 3,               # summed over populations
         'subpopulation': 'NFE',    # uppercased for the [A-Z]{3} schema pattern
-        'popmax_AF': 0.0002,       # nfe has the highest af
+        'popmax_AF': 0.0002,       # nfe, the FAF95 group
         'popmax_AC': 10,
         'faf_popmax_AF': 0.0001,
     }
 
 
+def test_build_gnomad_popmax_follows_faf_group_not_highest_af():
+    """nfe has the highest af, but afr is the FAF95 group: every field that
+    names or quantifies a group must describe afr."""
+    block = exp.build_gnomad('0.00015', '12', '0.00003', 'afr', _POPULATIONS)
+    assert block['subpopulation'] == 'AFR'
+    assert block['popmax_AF'] == 0.0001
+    assert block['popmax_AC'] == 2
+    assert block['faf_popmax_AF'] == 0.00003
+
+
+def test_build_gnomad_matches_upper_case_v3_faf_group_label():
+    """v3 labels the FAF95 group 'NFE'; the populations JSON says 'nfe'."""
+    block = exp.build_gnomad('0.00015', '12', '0.0001', 'NFE', _POPULATIONS)
+    assert block['subpopulation'] == 'NFE'
+    assert block['popmax_AF'] == 0.0002
+    assert block['popmax_AC'] == 10
+
+
+def test_build_gnomad_zero_faf_names_no_group():
+    """v3 labels every FAF95 = 0 row 'AFR' whichever group carries the allele.
+    A zero FAF95 names no group, so it is treated like v4.1's empty label --
+    otherwise a variant present in nfe would report popmax_AC 0."""
+    block = exp.build_gnomad('0.00015', '12', '0.0', 'AFR', _POPULATIONS)
+    assert block['subpopulation'] == 'ALL'
+    assert block['popmax_AF'] == 0.00015
+    assert block['popmax_AC'] == 12
+    assert block['faf_popmax_AF'] == 0.0
+
+
 def test_build_gnomad_undefined_faf_and_population_fall_back():
-    block = exp.build_gnomad('0.0', '0', '-', '-', _POPULATIONS)
+    block = exp.build_gnomad('0.00015', '12', '-', '-', _POPULATIONS)
     assert block['faf_popmax_AF'] == 0.0
     # "ALL" is HerediClassify's no-subpopulation marker and satisfies [A-Z]{3}
     assert block['subpopulation'] == 'ALL'
+    # with no FAF95 group, the popmax fields describe all of gnomAD -- not
+    # the highest-AF group (nfe, 0.0002)
+    assert block['popmax_AF'] == 0.00015
+    assert block['popmax_AC'] == 12
 
 
 def test_build_gnomad_no_populations_json():

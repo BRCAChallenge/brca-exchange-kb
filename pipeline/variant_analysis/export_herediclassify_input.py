@@ -159,24 +159,42 @@ def build_gnomad(allele_frequency, allele_count, faf95_popmax,
 
     af = _to_float(allele_frequency) if _defined(allele_frequency) else None
     ac = _to_int(allele_count) if _defined(allele_count) else None
+    faf = _to_float(faf95_popmax) if _defined(faf95_popmax) else None
+    # A FAF95 group only exists when a FAF95 above zero was computed. v4.1
+    # leaves the label empty otherwise, but v3 labels every FAF95 = 0 row
+    # 'AFR' whichever group carries the allele, so a zero FAF95 counts as no
+    # group too. gnomAD labels the group upper-case in v3 ('NFE') and
+    # lower-case in v4.1 ('nfe'); the populations JSON is keyed lower-case in
+    # both.
+    faf_group = (faf95_popmax_population.lower()
+                 if faf is not None and faf > 0
+                 and _defined(faf95_popmax_population) else None)
 
     ac_hom = 0
-    popmax_af, popmax_ac = None, None
+    ancestry = {}
     if populations and _ANCESTRY_KEYS.intersection(populations):
         ancestry = {k: v for k, v in populations.items() if k in _ANCESTRY_KEYS}
         for pop_data in ancestry.values():
             ac_hom += _to_int(pop_data.get('ac_hom')) or 0
-        # popmax over the reported genetic ancestry groups
-        best = max(ancestry.values(),
-                   key=lambda p: _to_float(p.get('af')) or 0.0)
-        popmax_af = _to_float(best.get('af'))
-        popmax_ac = _to_int(best.get('ac'))
 
-    faf = _to_float(faf95_popmax) if _defined(faf95_popmax) else None
-    # Schema pattern for subpopulation is [A-Z]{3}; "ALL" is HerediClassify's
-    # marker for "no subpopulation entry".
-    subpopulation = (faf95_popmax_population.upper()
-                     if _defined(faf95_popmax_population) else 'ALL')
+    # subpopulation, popmax_AF, popmax_AC and faf_popmax_AF all describe the
+    # FAF95 group, so HerediClassify's comments ("occurs with X in gnomAD
+    # subpopulation Y") name the group the numbers actually came from. The
+    # highest-AF group is not necessarily the FAF95 group: FAF95 also weighs
+    # each group's allele number.
+    if faf_group is not None:
+        # Schema pattern for subpopulation is [A-Z]{3}.
+        subpopulation = faf_group.upper()
+        group = ancestry.get(faf_group) or {}
+        popmax_af = _to_float(group.get('af'))
+        popmax_ac = _to_int(group.get('ac'))
+    else:
+        # No FAF95 group (none computed, or zero), so there is no group to
+        # describe. "ALL" is HerediClassify's marker for "no subpopulation
+        # entry", and its comments then report the frequency across all of
+        # gnomAD -- so the whole-gnomAD AF and AC go with it.
+        subpopulation = 'ALL'
+        popmax_af, popmax_ac = af, ac
 
     # All these keys are required by the schema whenever the gnomAD block is
     # present; 0 matches HerediClassify's own default for a missing key.
