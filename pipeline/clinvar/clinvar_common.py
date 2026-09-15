@@ -290,6 +290,75 @@ class referenceAssertion:
         self.summaryDescription = None
 
 
+def _collapse_whitespace(s):
+    """Collapse runs of whitespace, including tabs and newlines that would
+    break tab-delimited output, into single spaces"""
+    if s is None:
+        return None
+    return re.sub(r'\s+', ' ', s).strip()
+
+
+class aggregateClassification:
+    """The VCV-level aggregate germline classification: the single
+    ClassifiedRecord/Classifications/GermlineClassification that ClinVar
+    computes for a VariationArchive across all of its RCVs and submissions.
+    Unlike referenceAssertion, this doesn't depend on which RCV is picked."""
+
+    def __init__(self, element, debug=False):
+        self.element = element
+        self.variationID = element.get("VariationID")
+        self.accession = element.get("Accession")
+        self.version = element.get("Version")
+        self.dateLastUpdated = element.get("DateLastUpdated")
+        self.clinicalSignificance = None
+        self.reviewStatus = None
+        self.dateLastEvaluated = None
+        self.numberOfSubmissions = None
+        self.numberOfSubmitters = None
+        self.mostRecentSubmission = None
+        self.explanation = None
+        self.conditions = list()
+        self.conditionDbIds = list()
+        if debug:
+            print("Parsing aggregate classification", self.accession)
+        gc = element.find("./ClassifiedRecord/Classifications/GermlineClassification")
+        if gc is None:
+            self.valid = False
+            return
+        self.valid = True
+        self.clinicalSignificance = _collapse_whitespace(textIfPresent(gc, "Description"))
+        self.reviewStatus = _collapse_whitespace(textIfPresent(gc, "ReviewStatus"))
+        self.explanation = _collapse_whitespace(textIfPresent(gc, "Explanation"))
+        self.dateLastEvaluated = gc.get("DateLastEvaluated")
+        self.numberOfSubmissions = gc.get("NumberOfSubmissions")
+        self.numberOfSubmitters = gc.get("NumberOfSubmitters")
+        self.mostRecentSubmission = gc.get("MostRecentSubmission")
+        #
+        # One entry per Trait in the TraitSets that feed the aggregate call.
+        # Condition IDs are the XRefs on the Trait itself or on its preferred
+        # Name; XRefs nested in AttributeSets describe the attributes instead.
+        for traitSet in gc.iterfind("ConditionList/TraitSet"):
+            if traitSet.get("ContributesToAggregateClassification") == "false":
+                continue
+            for trait in traitSet.iterfind("Trait"):
+                preferred = None
+                xrefs = list(trait.iterfind("XRef"))
+                for name in trait.iterfind("Name"):
+                    ev = name.find("ElementValue")
+                    if ev is not None and ev.get("Type") == "Preferred":
+                        preferred = _collapse_whitespace(ev.text)
+                        xrefs += name.findall("XRef")
+                db_ids = list()
+                for xref in xrefs:
+                    if re.search("Genetic Testing Registry", xref.get("DB")):
+                        continue
+                    xref_string = xref.get("DB") + "_" + xref.get("ID")
+                    if not xref_string in db_ids:
+                        db_ids.append(xref_string)
+                self.conditions.append(preferred if preferred is not None else '-')
+                self.conditionDbIds.append(db_ids)
+
+
 class classification:
     """For gathering data on the trait.  This code expects only one trait"""
     def __init__(self, element, debug=False):
@@ -433,6 +502,7 @@ class variationArchive:
         # Look for the GermlineClassification object.
         cl = element.find("./ClassifiedRecord/Classifications")
         self.classification = classification(cl, debug=debug)
+        self.aggregateClassification = aggregateClassification(element, debug=debug)
         self.otherAssertions = dict()
         for item in element.iter("ClinicalAssertion"):
             if isCurrent(item):

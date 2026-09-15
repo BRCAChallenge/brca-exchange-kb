@@ -172,6 +172,46 @@ def load_pickle(path):
         return pickle.load(f)
 
 
+# Stars per ClinVar review status, for choosing between VCVs that
+# resolve to the same VRS digest
+CLINVAR_REVIEW_STATUS_STARS = {
+    'practice guideline': 4,
+    'reviewed by expert panel': 3,
+    'criteria provided, multiple submitters, no conflicts': 2,
+    'criteria provided, conflicting classifications': 1,
+    'criteria provided, single submitter': 1,
+}
+
+
+def clinvar_aggregate_fields(rec):
+    """variant_clinvar fields from the VCV_ INFO columns written by clinVarParse.py"""
+    variation_id = info_str(rec, 'VCV_VariationID')
+    return {
+        'Source_URL': (f'https://www.ncbi.nlm.nih.gov/clinvar/variation/{variation_id}/'
+                       if variation_id != '-' else '-'),
+        'Variation_ID':           variation_id,
+        'VCV_Accession':          info_str(rec, 'VCV_Accession'),
+        'VCV_Version':            info_str(rec, 'VCV_Version'),
+        'Clinical_Significance':  info_str(rec, 'VCV_ClinicalSignificance'),
+        'Review_Status':          info_str(rec, 'VCV_ReviewStatus'),
+        'Date_Last_Evaluated':    info_str(rec, 'VCV_DateLastEvaluated'),
+        'Number_Of_Submissions':  info_str(rec, 'VCV_NumberOfSubmissions'),
+        'Number_Of_Submitters':   info_str(rec, 'VCV_NumberOfSubmitters'),
+        'Most_Recent_Submission': info_str(rec, 'VCV_MostRecentSubmission'),
+        'Explanation':            info_str(rec, 'VCV_Explanation'),
+        'Conditions':             info_str(rec, 'VCV_Conditions'),
+        'Condition_DB_IDs':       info_str(rec, 'VCV_ConditionDB_IDs'),
+        'Date_Last_Updated':      info_str(rec, 'VCV_DateLastUpdated'),
+    }
+
+
+def clinvar_aggregate_rank(fields):
+    """Higher is better: review stars, then most recent evaluation"""
+    date = fields['Date_Last_Evaluated']
+    return (CLINVAR_REVIEW_STATUS_STARS.get(fields['Review_Status'], 0),
+            date if date != '-' else '')
+
+
 # ---------------------------------------------------------------------------
 # Command
 # ---------------------------------------------------------------------------
@@ -355,11 +395,7 @@ class Command(BaseCommand):
             if not d:
                 continue
             vrs_data = pkl.get(alt_vrs_id(rec))
-            clinvar_id = info_str(rec, 'ID')
-            source_url = (
-                f'https://www.ncbi.nlm.nih.gov/clinvar/variation/{clinvar_id}/'
-                if clinvar_id != '-' else '-'
-            )
+            aggregate = clinvar_aggregate_fields(rec)
 
             variant = self._upsert_variant(d, vrs_data,
                 Gene_Symbol=self._filter_gene_symbol(info_str(rec, 'Symbol')),
@@ -376,9 +412,15 @@ class Command(BaseCommand):
                 ref=rec.ref, alt=rec.alts[0] if rec.alts else '-',
             )
 
-            clinvar_rec, _ = Variant_in_ClinVar.objects.using(DB).get_or_create(
-                VRS_Digest=variant, defaults={'Source_URL': source_url},
+            clinvar_rec, created = Variant_in_ClinVar.objects.using(DB).get_or_create(
+                VRS_Digest=variant, defaults=aggregate,
             )
+            if (not created and aggregate['VCV_Accession'] != clinvar_rec.VCV_Accession
+                    and clinvar_aggregate_rank(aggregate) > clinvar_aggregate_rank(
+                        {k: getattr(clinvar_rec, k) for k in aggregate})):
+                for k, v in aggregate.items():
+                    setattr(clinvar_rec, k, v)
+                clinvar_rec.save(using=DB)
 
             Report_in_ClinVar.objects.using(DB).create(
                 VRS_Digest=clinvar_rec,

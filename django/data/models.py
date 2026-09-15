@@ -109,6 +109,21 @@ class Variant_in_ClinVar(models.Model):
 
     Source_URL = models.TextField()
 
+    # VCV-level aggregate germline classification
+    Variation_ID = models.TextField(default='-')
+    VCV_Accession = models.TextField(default='-')
+    VCV_Version = models.TextField(default='-')
+    Clinical_Significance = models.TextField(default='-')
+    Review_Status = models.TextField(default='-')
+    Date_Last_Evaluated = models.TextField(default='-')
+    Number_Of_Submissions = models.TextField(default='-')
+    Number_Of_Submitters = models.TextField(default='-')
+    Most_Recent_Submission = models.TextField(default='-')
+    Explanation = models.TextField(default='-')
+    Conditions = models.TextField(default='-')
+    Condition_DB_IDs = models.TextField(default='-')
+    Date_Last_Updated = models.TextField(default='-')
+
     class Meta:
         db_table = 'variant_clinvar'
 
