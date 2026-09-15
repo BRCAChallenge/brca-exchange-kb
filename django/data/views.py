@@ -14,7 +14,12 @@ from django.http import JsonResponse, HttpResponse, HttpResponseBadRequest
 from django.views.decorators.gzip import gzip_page
 from .models import (
     Variant, DataRelease,
-    Variant_in_Paper, Paper
+    Variant_in_Paper, Paper,
+    Report_in_ClinVar, Report_in_LOVD,
+)
+from .column_mapping import (
+    resolve_columns, DETAIL_COLUMNS,
+    CLINVAR_REPORT_FIELDS, LOVD_REPORT_FIELDS, LOVD_ANCHOR_REPORT_FIELDS,
 )
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
@@ -107,9 +112,40 @@ def variant(request):
         variant = Variant.objects.get(VRS_Digest=variant_id)
 
     query = Variant.objects.filter(VRS_Digest=variant.VRS_Digest)
+    query, values_fields = resolve_columns(query, DETAIL_COLUMNS)
 
-    variant_versions = list(map(variant_to_dict, query))
+    variant_versions = list(query.values(*values_fields))
     response = JsonResponse({"data": variant_versions})
+    response['Access-Control-Allow-Origin'] = '*'
+    return response
+
+
+def variant_reports(request, variant_id):
+    variant_id_clean = str(variant_id).lower().strip()
+    variant_id_clean = remove_disallowed_chars(variant_id_clean)
+
+    if variant_id_clean.startswith('ca'):
+        variant = Variant.objects.filter(Q(CA_ID__icontains=variant_id_clean))[0]
+    else:
+        variant = Variant.objects.get(VRS_Digest=variant_id)
+
+    reports = []
+
+    for r in Report_in_ClinVar.objects.filter(VRS_Digest__VRS_Digest=variant.VRS_Digest):
+        d = {'Source': 'ClinVar'}
+        for old, field in CLINVAR_REPORT_FIELDS.items():
+            d[old] = getattr(r, field)
+        reports.append(d)
+
+    for r in Report_in_LOVD.objects.filter(VRS_Digest__VRS_Digest=variant.VRS_Digest).select_related('VRS_Digest'):
+        d = {'Source': 'LOVD'}
+        for old, field in LOVD_REPORT_FIELDS.items():
+            d[old] = getattr(r, field)
+        for old, field in LOVD_ANCHOR_REPORT_FIELDS.items():
+            d[old] = getattr(r.VRS_Digest, field)
+        reports.append(d)
+
+    response = JsonResponse({"data": reports})
     response['Access-Control-Allow-Origin'] = '*'
     return response
 
@@ -166,7 +202,14 @@ def variant_papers(request):
         # year of 0000 means year could not be found during a crawl
         if variantpaper.Paper.Year == '0000':
             variantpaper.Paper.Year = "Unknown"
-    variantpapers = [dict(model_to_dict(vp.Paper), **{"mentions": vp.mentions, "points": vp.points}) for vp in variantpapers]
+    variantpapers = [{
+        "title": vp.Paper.Title,
+        "authors": vp.Paper.Author,
+        "journal": vp.Paper.Journal,
+        "year": vp.Paper.Year,
+        "pmid": vp.Paper.PMID,
+        "mentions": vp.mentions,
+    } for vp in variantpapers]
     response = JsonResponse({"data": variantpapers}, safe=False)
     response['Access-Control-Allow-Origin'] = '*'
     return response
@@ -203,13 +246,19 @@ def index(request):
     query = apply_sources(query, include, exclude)
 
     if filters:
-        query = apply_filters(query, filter_values, filters, quotes=quotes)
+        try:
+            query = apply_filters(query, filter_values, filters, quotes=quotes)
+        except ValueError as e:
+            return HttpResponseBadRequest(str(e))
 
     if search_term:
         query, synonyms_count = apply_search(query, search_term, quotes=quotes)
 
     if order_by:
-        query = apply_order(query, order_by, direction)
+        try:
+            query = apply_order(query, order_by, direction)
+        except ValueError as e:
+            return HttpResponseBadRequest(str(e))
 
     if format == 'csv' or format == 'tsv':
         cursor = connection.cursor()
@@ -230,9 +279,13 @@ def index(request):
         return response
 
     elif format == 'json':
+        try:
+            query, values_fields = resolve_columns(query, column)
+        except KeyError as e:
+            return HttpResponseBadRequest('Unknown column(s): %s' % ', '.join(e.args[0]))
         count = query.count()
         query = select_page(query, page_size, page_num)
-        response = JsonResponse({'count': count, 'deletedCount': deleted_count, 'synonyms': synonyms_count, 'data': list(query.values(*column))})
+        response = JsonResponse({'count': count, 'deletedCount': deleted_count, 'synonyms': synonyms_count, 'data': list(query.values(*values_fields))})
         response['Access-Control-Allow-Origin'] = '*'
         return response
 
@@ -274,10 +327,15 @@ def apply_filters(query, filterValues, filters, quotes=''):
         if column == 'id':
             query = query.filter(**{column: value})
         else:
-            query = query.extra(
-                where=["\"{0}\" LIKE %s".format(column)],
-                params=["{0}{1}%{0}".format(quotes, value)]
-            )
+            # raw column names (e.g. from .extra()) can't reach related-table
+            # fields, so this resolves through the same old-schema column
+            # map index() uses, then does a plain (case-sensitive) prefix
+            # match - the same semantics the old raw LIKE 'value%' had.
+            try:
+                query, (resolved,) = resolve_columns(query, [column])
+            except KeyError as e:
+                raise ValueError('Unknown filter column(s): %s' % ', '.join(e.args[0]))
+            query = query.filter(**{'%s__startswith' % resolved: value})
     return query
 
 
@@ -418,7 +476,7 @@ def apply_search(query, search_term, quotes=''):
     # Generic searches (no prefixes)
     else:
         results = query.filter(
-            Q(Pathogenicity__icontains=search_term) |
+            Q(enigma_reports__Pathogenicity__icontains=search_term) |
             Q(Synonyms__icontains=search_term) |
             Q(Gene_Symbol__icontains=search_term) |
             Q(HGVS_cDNA__icontains=search_term) |
@@ -428,7 +486,7 @@ def apply_search(query, search_term, quotes=''):
         )
 
         non_synonyms = query.filter(
-            Q(Pathogenicity__icontains=search_term) |
+            Q(enigma_reports__Pathogenicity__icontains=search_term) |
             Q(Gene_Symbol__icontains=search_term) |
             Q(HGVS_cDNA__icontains=search_term) |
             Q(BIC_Nomenclature__icontains=search_term) |
@@ -445,9 +503,13 @@ def apply_order(query, order_by, direction):
     # special case for HGVS columns
     if order_by in ('HGVS_cDNA', 'HGVS_Protein'):
         order_by = 'Gene_Symbol'
+    try:
+        query, (resolved,) = resolve_columns(query, [order_by])
+    except KeyError as e:
+        raise ValueError('Unknown order_by column(s): %s' % ', '.join(e.args[0]))
     if direction == 'descending':
-        order_by = '-' + order_by
-    return query.order_by(order_by, 'Pathogenicity')
+        resolved = '-' + resolved
+    return query.order_by(resolved, 'enigma_reports__Pathogenicity')
 
 
 def select_page(query, page_size, page_num):
@@ -458,32 +520,63 @@ def select_page(query, page_size, page_num):
     return query
 
 
+# (table, column_expr, extra_where_sql, split_delimiter) - mirrors the
+# fields the old words table was built from (see remove_last_release.py's
+# update_autocomplete_words, ported to this schema's related tables).
+# The old table was scoped per Data_Release; that concept doesn't exist for
+# this schema's current-state-only Variant, so suggestions are just computed
+# live across all current data instead - there's no "old release" view to
+# preserve. HGVS_cDNA additionally splits on ':' to separate the transcript
+# prefix from the variant notation, same as the old build.
+_WORD_DELIM = "[\\s|'\"]"
+_HGVS_CDNA_WORD_DELIM = "[\\s|:'\"]"
+_AUTOCOMPLETE_SOURCES = [
+    ('variant', '"Gene_Symbol"', '', _WORD_DELIM),
+    ('variant', '"Reference_Sequence"', '', _WORD_DELIM),
+    ('variant', '"HGVS_cDNA"', '', _HGVS_CDNA_WORD_DELIM),
+    ('variant', '"BIC_Nomenclature"', '', _WORD_DELIM),
+    ('variant', '"HGVS_Protein"', '', _WORD_DELIM),
+    ('variant_genomic_coordinates', '"hgvs"', "assembly = 'GRCh38'", _WORD_DELIM),
+    ('variant_genomic_coordinates', '"hgvs"', "assembly = 'GRCh37'", _WORD_DELIM),
+    ('variant_enigma', '"Clinical_significance"', '', _WORD_DELIM),
+]
+
+
 def autocomplete(request):
     cursor = connection.cursor()
     term = request.GET.get('term')
-
-    '''If a release is specified in the query, only return autocomplete
-    suggestions for specified release, otherwise default to suggestions
-    for the latest release'''
-    if 'release' in request.GET:
-        release = request.GET.get('release')
-    else:
-        cursor.execute("""SELECT MAX(id) FROM data_release""")
-        release = cursor.fetchone()[0]
-
     limit = int(request.GET.get('limit', 10))
 
+    # coarse containment pre-filter on the un-split source column, before the
+    # expensive regexp_split_to_table pass - any row with a word starting
+    # with `term` necessarily contains `term` somewhere, so this narrows the
+    # working set without changing the result. Delimiters are passed as bind
+    # params too, so no manual SQL-quote escaping is needed anywhere here.
+    contains_pattern = '%{}%'.format(term)
+    prefix_pattern = '{}%'.format(term)
+
+    selects = []
+    params = []
+    for table, column_expr, extra_where, delimiter in _AUTOCOMPLETE_SOURCES:
+        where = 'WHERE {} ILIKE %s'.format(column_expr)
+        if extra_where:
+            where += ' AND {}'.format(extra_where)
+        selects.append(
+            'SELECT regexp_split_to_table(lower({}), %s) AS word FROM {} {}'
+            .format(column_expr, table, where)
+        )
+        params.extend([delimiter, contains_pattern])
+
     cursor.execute(
-        """SELECT word FROM words
-        WHERE word LIKE %s
-        AND char_length(word) >= 3
-        AND release_id = %s
-        ORDER BY word""",
-        ["%s%%" % term, release])
+        'SELECT DISTINCT left(word, 300) AS word FROM ({}) AS words '
+        'WHERE word LIKE %s AND char_length(word) >= 3 '
+        'ORDER BY word LIMIT %s'.format(' UNION ALL '.join(selects)),
+        params + [prefix_pattern, limit],
+    )
 
     rows = cursor.fetchall()
 
-    response = JsonResponse({'suggestions': rows[:limit]})
+    response = JsonResponse({'suggestions': rows})
     response['Access-Control-Allow-Origin'] = '*'
     return response
 

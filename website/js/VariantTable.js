@@ -47,7 +47,7 @@ const filterColumns = [
 const expertModeGroups = [
     {groupTitle: 'Variant Names', internalGroupName: 'Variant Nomenclature', innerCols: [
         {title: 'Gene', prop: 'Gene_Symbol', render: gene => <i>{gene}</i>},
-        {title: 'HGVS Nucleotide', prop: 'HGVS_cDNA', render: nucleotide => nucleotide.split(':')[1]},
+        {title: 'HGVS Nucleotide', prop: 'HGVS_cDNA', render: nucleotide => nucleotide.includes(':') ? nucleotide.split(':')[1] : nucleotide},
         {title: 'Transcript Identifier', prop: 'Reference_Sequence'},
         {title: 'HGVS RNA', prop: 'HGVS_RNA'},
         {title: 'HGVS Protein', prop: 'HGVS_Protein', render: protein => protein.split(':')[1]},
@@ -78,7 +78,7 @@ const researchModeGroups = [
     {groupTitle: 'Variant Nomenclature', internalGroupName: 'Variant Nomenclature', innerCols: [
         {title: 'Gene Symbol', prop: 'Gene_Symbol', render: gene => <i>{gene}</i>},
         {title: 'Reference cDNA Sequence', prop: 'Reference_Sequence', core: true},
-        {title: 'HGVS Nucleotide', prop: 'HGVS_cDNA', render: nucleotide => nucleotide.split(':')[1], core: true},
+        {title: 'HGVS Nucleotide', prop: 'HGVS_cDNA', render: nucleotide => nucleotide.includes(':') ? nucleotide.split(':')[1] : nucleotide, core: true},
         {title: 'HGVS Protein', prop: 'HGVS_Protein', render: protein => protein.split(':')[1], core: true},
         {title: 'Protein Amino Acid Change', prop: 'Protein_Change', core: true},
         {title: 'BIC Designation', prop: 'BIC_Nomenclature', core: true},
@@ -417,7 +417,7 @@ const subColumns = _.map(_.filter(researchModeGroups, function(group) { return !
 
 const columns = [
     {title: 'Gene', prop: 'Gene_Symbol', render: gene => <i>{gene}</i>},
-    {title: 'HGVS Nucleotide', prop: 'HGVS_cDNA', render: nucleotide => nucleotide.split(':')[1]},
+    {title: 'HGVS Nucleotide', prop: 'HGVS_cDNA', render: nucleotide => nucleotide.includes(':') ? nucleotide.split(':')[1] : nucleotide},
     {title: 'Transcript Identifier', prop: 'Reference_Sequence'},
     {title: 'HGVS RNA', prop: 'HGVS_RNA'},
     {title: 'HGVS Protein', prop: 'HGVS_Protein', render: protein => protein.split(':')[1]},
