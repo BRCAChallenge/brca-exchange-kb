@@ -57,7 +57,6 @@ import { Container as Grid, Col, Row, Table, Button, Modal, Card, Collapse } fro
 import {VariantTable, ResearchVariantTable, researchModeColumns, columns, researchModeGroups, expertModeGroups} from './VariantTable';
 import Signup from './Signup';
 import {Signin, ResetPassword} from './Signin';
-import {ConfirmEmail} from './ConfirmEmail';
 import {ChangePassword} from './ChangePassword';
 import {Profile} from './Profile';
 import VariantSearch from './VariantSearch';
@@ -106,7 +105,7 @@ class Footer extends React.PureComponent {
                     <div className="col-sm-5 left-footer">
                     <ul>
                         <li><a href="/">Home</a></li>
-                        <li><a href="/about/history">About</a></li>
+                        <li><a href="/about/thisSite">About</a></li>
                         <li><a href="/variants">Variants</a></li>
 			<li><a href="/resources">Resources</a></li>
                         <li><a href="/about/api">API</a></li>
@@ -192,7 +191,7 @@ class HomeRaw extends React.Component {
                 </Row>
 		<Row>
 		   <h3>
-			Find educational and support information on our <Link to={'/resources'}>Resources</Link> page.
+			If you have questions about BRCA genes, genetic testing, or cancer risk, visit  our <Link to={'/resources'}>Resources</Link> page.
 		   </h3>
 		</Row>
                 <Row>
@@ -1673,7 +1672,6 @@ const routes = (
         <Route path='/signin' component={Signin}/>
         <Route path='/reset_password' component={ResetPassword}/>
 	<Route path='/profile' component={Profile}/>
-        <Route path='/confirm/:activationCode' component={ConfirmEmail}/>
 	<Route path='/reset/:resetToken' component={ChangePassword}/>
 	<Route path='/resources' component={Resources}/>
     </Switch>
