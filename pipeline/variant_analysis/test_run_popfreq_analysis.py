@@ -284,6 +284,29 @@ def test_analyze_one_dataset_low_allele_count_is_pm2_candidate():
     assert code == popfreq.PM2_SUPPORTING
 
 
+def test_no_code_message_quotes_the_faf_when_one_was_computed():
+    code, msg = popfreq.analyze_one_dataset(
+        "0.000001", "1000", True, 25, False, 1,
+        "13", 100, 100, None, "0.000001", "afr", "-", "-",
+        config=_config(), gnomad_label="gnomAD v4.1", debug=False,
+    )
+    assert code == popfreq.NO_CODE
+    assert "is 0.000001 in the afr genetic ancestry group" in msg
+    assert "not calculated" not in msg
+    assert "95% CI" in msg and "%%" not in msg
+
+
+def test_no_code_message_says_not_calculated_when_faf_is_missing():
+    code, msg = popfreq.analyze_one_dataset(
+        "-", "1000", True, 25, False, 1,
+        "13", 100, 100, None, "-", "-", "-", "-",
+        config=_config(), gnomad_label="gnomAD v4.1", debug=False,
+    )
+    assert code == popfreq.NO_CODE
+    assert "was not calculated" in msg
+    assert "is - in the -" not in msg
+
+
 # --- missing_faf_suggests_absence: the popfreq_1.2 vs popfreq_1.3 behavior ---
 
 def test_missing_faf_high_allele_count_blocked_by_default_legacy_behavior():

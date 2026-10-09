@@ -85,14 +85,14 @@ class PopfreqConfig:
 
     def ba1_msg(self, faf, pop, ac, an, gnomad_label):
         return (
-            f"The Total GrpMax filtering allele frequency (the lower threshold of the 95%% CI) "
+            f"The Total GrpMax filtering allele frequency (the lower threshold of the 95% CI) "
             f"in {gnomad_label} is {faf} in the {pop} genetic ancestry group (based on {ac}/{an} alleles) "
             f"which is above the ENIGMA BRCA1/2 VCEP threshold (>{self.ba1_faf_threshold}) for BA1 (BA1 met)."
         )
 
     def bs1_msg(self, faf, pop, ac, an, gnomad_label):
         return (
-            f"The Total GrpMax filtering allele frequency (the lower threshold of the 95%% CI) "
+            f"The Total GrpMax filtering allele frequency (the lower threshold of the 95% CI) "
             f"in {gnomad_label} is {faf} in the {pop} genetic ancestry group (based on {ac}/{an} alleles) "
             f"which is above the ENIGMA BRCA1/2 VCEP threshold (>{self.bs1_faf_threshold}) for BS1, "
             f"and below the BA1 threshold (>{self.ba1_faf_threshold}) (BS1 met)."
@@ -100,7 +100,7 @@ class PopfreqConfig:
 
     def bs1_supporting_msg(self, faf, pop, ac, an, gnomad_label):
         return (
-            f"The Total GrpMax filtering allele frequency (the lower threshold of the 95%% CI) "
+            f"The Total GrpMax filtering allele frequency (the lower threshold of the 95% CI) "
             f"in {gnomad_label} is {faf} in the {pop} genetic ancestry group (based on {ac}/{an} alleles) "
             f"which is above the ENIGMA BRCA1/2 VCEP threshold (>{self.rare_variant_faf_threshold}) "
             f"for BS1_Supporting, and below the BS1 threshold (>{self.bs1_faf_threshold}) (BS1_Supporting met)."
@@ -108,7 +108,7 @@ class PopfreqConfig:
 
     def no_code_met_msg(self, faf, pop, ac, an, gnomad_label):
         return (
-            f"The Total GrpMax filtering allele frequency (the lower threshold of the 95%% CI) "
+            f"The Total GrpMax filtering allele frequency (the lower threshold of the 95% CI) "
             f"in {gnomad_label} is {faf} in the {pop} genetic ancestry group (based on {ac}/{an} alleles) "
             f"which is below the ENIGMA BRCA1/2 VCEP threshold (>{self.bs1_supporting_faf_threshold}) "
             f"for BS1_Supporting and does not meet any population code "
@@ -332,9 +332,9 @@ def analyze_one_dataset(faf95_popmax_str, allele_count, snv_or_small_indel,
         variant_convincingly_present = False
     if variant_convincingly_present:
         if field_defined(faf95_popmax_str):
-            return(NO_CODE, no_code_no_faf_msg(gnomad_label))
-        else:
             return(NO_CODE, config.no_code_met_msg(faf95_popmax, faf95_popmax_population, allele_count_pop, allele_number_pop, gnomad_label))
+        else:
+            return(NO_CODE, no_code_no_faf_msg(gnomad_label))
     if config.use_lcr and lcr is not None:
         if overlaps_lcr(chrom, genome_start, genome_end, lcr):
             return(FAIL_LCR, FAIL_LCR_MSG)
