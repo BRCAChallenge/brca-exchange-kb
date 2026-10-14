@@ -15,7 +15,7 @@ from django.views.decorators.gzip import gzip_page
 from .models import (
     Variant, DataRelease,
     Variant_in_Paper, Paper,
-    Report_in_ClinVar, Report_in_LOVD,
+    Report_in_ClinVar, Report_in_LOVD, Report_in_GnomAD
 )
 from .column_mapping import (
     resolve_columns, DETAIL_COLUMNS,
@@ -30,6 +30,40 @@ import logging
 from functools import reduce
 
 DISALLOWED_SEARCH_CHARS = ['\x00']
+
+# Retrieve gnomad report(s) for a variant
+# Required: VRS_Digest
+# Optional: version, data_type
+def report_in_gnomad(request):
+    variant_id = request.GET.get('VRS_Digest')
+    reports = Report_in_GnomAD.objects.filter(VRS_Digest=variant_id)
+
+    version = request.GET.get('version')
+    if version:
+        reports = reports.filter(version=version)
+
+    data_type = request.GET.get('data_type')
+    if data_type:
+        reports = reports.filter(data_type=data_type)
+
+    reports = list(reports)
+
+    response_dict = {"data":[]}
+    fields = [ "Allele_count","faf95_popmax_population","populations", "version", "data_type"] # Also includes VRS_Digest
+    for report in reports:
+        report_dict= {}
+        # Special case - get the VRS_Digest field from the VRS_Digest of the variant connected via Variant_in_GnomAD
+        vrs_digest = getattr(
+                        getattr(
+                            getattr(report, "VRS_Digest"), "VRS_Digest"), "VRS_Digest")
+        report_dict["VRS_Digest"] = vrs_digest
+        for field in fields:
+            report_dict[field] = getattr(report, field)
+        response_dict["data"].append(report_dict)
+
+    response = JsonResponse(response_dict)
+    response['Access-Control-Allow-Origin'] = '*'
+    return response
 
 
 def releases(request):

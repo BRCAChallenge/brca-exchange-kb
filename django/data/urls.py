@@ -6,6 +6,7 @@ urlpatterns = [
 
     re_path(r'^$', views.index, name="index"),
     re_path(r'^releases', views.releases, name="releases"),
+    re_path(r'^gnomad', views.report_in_gnomad, name="report_in_gnomad"),
     re_path(r'^variant/$', views.variant, name="variant"),
     re_path(r'^variant/(?P<variant_id>[^/]+)/reports$', views.variant_reports, name="variant_reports"),
     re_path(r'^vrid/$', views.vrid, name="vr_id"),
