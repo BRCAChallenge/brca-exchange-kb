@@ -4,41 +4,18 @@ gnomAD provides _BRCA1_ and _BRCA2_ allele frequencies for the BRCA Exchange. Th
 As an aggregation database, gnomAD data subsumes much of ExAC and 1000 Genomes data. 
 
 #### Exomes and Genomes 
-gnomAD provides frequencies from both genome (Version 3.1) and exome (Version 2.1) sequencing projects. On the BRCA Exchange, these frequencies are presented in different subtiles. A small "E" indicates Exomes data, while a small "G" icon indicates Genomes data. If data is available on both Exomes and Genomes, a total of four subtiles will be available:
+gnomAD provides frequencies from both genome (Version 3.1) and joint (Version 4.1) sequencing projects. On the BRCA Exchange, these frequencies are presented in different subtiles. A small "E" indicates Exomes data, a small "G" icon indicates Genomes data, and a small "J" icon indicates both Exomes and Genomes data. If data is available on both Exomes and Genomes, a total of four subtiles will be available:
 
-* gnomAD V2.1 Exomes, Non-Cancer (Graphical)
-* gnomAD V2.1 Exomes, Non-Cancer (Numerical)
 * gnomAD V3.1 Genomes, Non-Cancer (Graphical)
 * gnomAD V3.1 Genomes, Non-Cancer (Numerical)
+* gnomAD V4.1 Joint (Graphical)
+* gnomAD V4.1 Joint (Numerical)
 
 This data is updated during the monthly release cycle, and will contain any new information provided by gnomAD. 
 
 #### gnomAD Populations
 
 The BRCA Exchange displays the primary subsets used by ExAC and gnomAD (i.e. “East  Asian”). Additional detailed population data, such as female and male distributions, can be found in gnomAD. All data are from gnomAD's non-cancer subset, meaning that these allele frequencies do not include observations from any cancer studies.
-
-#### The following fields are available under gnomAD 2.1 Exomes, Non-Cancer (Numerical):
-
-* #### Total Allele frequency ((Allele_frequency_exome_GnomAD))
-	Overall allele frequency (for exomes) according to all studied populations, per gnomAD
-* #### Popmax Filtering Allele Frequency (95% confidence) ((faf95_popmax_exome_GnomAD))
-	95% confidence threshold on the most significant population frequency (gnomAD 2.1)
-* #### Allele frequency African ((Allele_frequency_exome_AFR_GnomAD))
-	Allele frequency in exomes of African/African American Populations (gnomAD 2.1)
-* #### Allele frequency Latino ((Allele_frequency_exome_AMR_GnomAD))
-	Allele frequency in exomes of Latino Populations (gnomAD 2.1)
-* #### Allele frequency Ashkenazi Jewish ((Allele_frequency_exome_ASJ_GnomAD))
-	Allele frequency in exomes of the Ashkenazi Jewish Population (gnomAD 2.1)
-* #### Allele frequency East Asian ((Allele_frequency_exome_EAS_GnomAD))
-	Allele frequency in exomes of East Asian Populations (gnomAD 2.1)
-* #### Allele frequency Finnish ((Allele_frequency_exome_FIN_GnomAD))
-	Allele frequency in exomes of the Finnish Population (gnomAD 2.1)
-* #### Allele frequency Non-Finnish European ((Allele_frequency_exome_NFE_GnomAD))
-	Allele frequency in exomes of Non-Finnish European Populations (gnomAD 2.1)
-* #### Allele frequency Other ((Allele_frequency_exome_OTH_GnomAD))
-	Allele frequency in exomes of Other Populations (gnomAD 2.1)
-* #### Allele freqeuncy South Asian ((Allele_frequency_exome_SAS_GnomAD))
-	Allele frequency in exomes of South Asian Populations (gnomAD 2.1)
 
 #### The following fields are available under gnomAD 3.1 Genomes, Non-Cancer (Numerical):
 
@@ -56,16 +33,43 @@ The BRCA Exchange displays the primary subsets used by ExAC and gnomAD (i.e. “
 	Allele Frequency in genomes of East Asian Populations (gnomAD 3.1)
 * #### Allele frequency Finnish ((Allele_frequency_genome_FIN_GnomADv3))
 	Allele Frequency in genomes of Finnish Populations (gnomAD 3.1)
-* #### Allele frequency Non-Finnish European((Allele_frequency_genome_NFE_GnomADv3))
+* #### Allele frequency Non-Finnish European ((Allele_frequency_genome_NFE_GnomADv3))
 	Allele Frequency in genomes of Non-Finnish European Populations (gnomAD 3.1)
 * #### Allele frequency Other ((Allele_frequency_genome_OTH_GnomADv3))
 	Allele Frequency in genomes of Other Populations (gnomAD 3.1)
-* #### Allele freqeuncy South Asian ((Allele_frequency_genome_SAS_GnomADv3))
+* #### Allele frequency South Asian ((Allele_frequency_genome_SAS_GnomADv3))
 	Allele Frequency in genomes of South Asian Populations (gnomAD 3.1)
 * #### Allele frequency Middle Eastern ((Allele_frequency_genome_MID_GnomADv3))
 	Allele Frequency in genomes of Middle Eastern Populations (gnomAD 3.1)
 * #### Allele frequency Amish ((Allele_frequency_genome_AMI_GnomADv3))
 	Allele Frequency in genomes of Amish Populations (gnomAD 3.1)
+
+#### The following fields are available under gnomAD v4.1 Joint (Numerical):
+
+* #### Total Allele frequency ((Allele_frequency_joint_GnomADv41))
+Overall allele frequency according to all studied populations, combining gnomAD v4.1 exome and genome data (gnomAD v4.1 Joint)
+* #### Grpmax Filtering Allele Frequency (95% confidence) ((faf95_popmax_joint_GnomADv41))
+The 95% confidence bound on the highest filtering allele frequency across gnomAD v4.1 genetic ancestry groups. The Amish, Ashkenazi Jewish, Finnish, Middle Eastern and Remaining groups are not included in this calculation (gnomAD v4.1 Joint)
+* #### Allele frequency African/African American ((Allele_frequency_joint_AFR_GnomADv41))
+Allele frequency in exomes and genomes of African/African American Populations (gnomAD v4.1 Joint)
+* #### Allele frequency Admixed American ((Allele_frequency_joint_AMR_GnomADv41))
+Allele frequency in exomes and genomes of Admixed American Populations (gnomAD v4.1 Joint)
+* #### Allele frequency Amish ((Allele_frequency_joint_AMI_GnomADv41))
+Allele frequency in genomes of Amish Populations. This group is only sequenced by genomes (gnomAD v4.1 Joint)
+* #### Allele frequency Ashkenazi Jewish ((Allele_frequency_joint_ASJ_GnomADv41))
+Allele frequency in exomes and genomes of Ashkenazi Jewish Populations (gnomAD v4.1 Joint)
+* #### Allele frequency East Asian ((Allele_frequency_joint_EAS_GnomADv41))
+Allele frequency in exomes and genomes of East Asian Populations (gnomAD v4.1 Joint)
+* #### Allele frequency Finnish ((Allele_frequency_joint_FIN_GnomADv41))
+Allele frequency in exomes and genomes of Finnish Populations (gnomAD v4.1 Joint)
+* #### Allele frequency Middle Eastern ((Allele_frequency_joint_MID_GnomADv41))
+Allele frequency in exomes and genomes of Middle Eastern Populations (gnomAD v4.1 Joint)
+* #### Allele frequency Non-Finnish European ((Allele_frequency_joint_NFE_GnomADv41))
+Allele frequency in exomes and genomes of Non-Finnish European Populations (gnomAD v4.1 Joint)
+* #### Allele frequency South Asian ((Allele_frequency_joint_SAS_GnomADv41))
+Allele frequency in exomes and genomes of South Asian Populations (gnomAD v4.1 Joint)
+* #### Allele frequency Remaining ((Allele_frequency_joint_REMAINING_GnomADv41))
+Allele frequency in exomes and genomes of individuals who were not assigned to any of the genetic ancestry groups above (gnomAD v4.1 Joint)
 
 #### Graphical gnomAD Data
 Graphical gnomAD data can be viewed by expanding any of the gnomAD (Graphical) subtiles. Two Graphs are available; one of the graphs is custom scaled to the allele frequencies by default (right side). Hovering over each bar will give you the numerical value represented in the population subset. You can click anywhere on the gnomAD (scaled) graph to change the scale between 1.0% (.01), 0.1% (.001), and the custom, default scale. This variety of scales will allow you to view all possible Allele Frequencies graphically.

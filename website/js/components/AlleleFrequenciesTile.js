@@ -16,8 +16,6 @@ const fieldsOfInterest = {
 // [v41-exome-disabled]
 //    'gnomAD v4.1 Exomes (Graphical)': false,
 //    'gnomAD v4.1 Exomes (Numerical)': false,
-    'gnomAD V2.1 Exomes, Non-Cancer (Graphical)': true,
-    'gnomAD V2.1 Exomes, Non-Cancer (Numerical)': false,
     'gnomAD V3.1 Genomes, Non-Cancer (Graphical)': true,
     'gnomAD V3.1 Genomes, Non-Cancer (Numerical)': false,
 };
@@ -69,14 +67,6 @@ export default class AlleleFrequenciesTile extends React.Component {
         const variant = this.props.variant;
         const data = this.props.alleleFrequencyData;
 
-        const gnomadExomeGraph = [_.find(data, function (dd) {
-            return dd.source === "GnomAD Exomes";
-        }).chart[0], "gnomAD V2.1 Exomes, Non-Cancer (Graphical)"];
-
-        const gnomadExomeData = [_.find(data, function (dd) {
-            return dd.source === "GnomAD Exomes";
-        }).data, "gnomAD V2.1 Exomes, Non-Cancer (Numerical)"];
-
         const gnomadGenomeGraph = [_.find(data, function (dd) {
             return dd.source === "GnomADv3 Genomes";
         }).chart[0], "gnomAD V3.1 Genomes, Non-Cancer (Graphical)"];
@@ -103,7 +93,7 @@ export default class AlleleFrequenciesTile extends React.Component {
 //        }).data, "gnomAD v4.1 Exomes (Numerical)"];
 
         const alleleFrequencyFields = [
-		gnomadExomeGraph, gnomadExomeData, gnomadGenomeGraph, gnomadGenomeData,
+		gnomadGenomeGraph, gnomadGenomeData,
 		gnomadV41JointGraph, gnomadV41JointData /* [v41-exome-disabled] gnomadV41ExomeGraph, gnomadV41ExomeData */
 	];
 
@@ -191,8 +181,8 @@ export default class AlleleFrequenciesTile extends React.Component {
                             <Card.Body>
                                 <div className="tile-disclaimer">
                                     <div>
-                                        The gnomAD V2.1 and V3.1 data sets used by BRCA Exchange are the “non-cancer” subsets
-                                        of these sources. Data from <a href="https://tcga-data.nci.nih.gov/docs/publications/tcga/about.html">TCGA</a>
+                                        The gnomAD V3.1 data set used by BRCA Exchange is the “non-cancer” subset
+                                        of that source. Data from <a href="https://tcga-data.nci.nih.gov/docs/publications/tcga/about.html">TCGA</a>
                                         &nbsp;and other cancer cohorts are excluded to ensure that the frequencies used
                                         to assess pathogenicity represent individuals not affected by cancer.
 					gnomAD v4.1 does not provide a non-cancer subset, so the v4.1 data shown here

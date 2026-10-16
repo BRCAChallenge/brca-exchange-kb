@@ -236,13 +236,8 @@ export function getFormattedFieldByProp(prop, variant) {
         let count = variant[prop.replace("frequency", "count")],
             number = variant[prop.replace("frequency", "number")];
         rowItem = [variant[prop], <small key={`${prop}-meta`} style={{float: 'right'}}>({count} of {number})</small>];
-    } else if (prop === "Allele_frequency_genome_GnomADv3" || prop === "Allele_frequency_exome_GnomAD") {
-        let flag;
-        if (prop === "Allele_frequency_genome_GnomADv3") {
-            flag = variant.Flags_GnomADv3;
-        } else {
-            flag = variant.Flags_GnomAD;
-        }
+    } else if (prop === "Allele_frequency_genome_GnomADv3") {
+        const flag = variant.Flags_GnomADv3;
         if (!isEmptyField(flag)) {
             rowItem = [variant[prop], <small key={`${prop}-flag`} style={{float: 'right'}}><span className="fa fa-flag gnomad-flag"><span>{flag}</span></span></small>];
         } else {

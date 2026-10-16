@@ -14,12 +14,7 @@ class AlleleFrequencyField extends React.PureComponent {
     constructor(props) {
 	super(props);
         // identifies which subpopulation groups are expanded
-        this.state = {
-            'Allele_frequency_exome_NFE_GnomAD': false,
-            'Allele_frequency_exome_EAS_GnomAD': false,
-            'Allele_frequency_genome_NFE_GnomAD': false,
-            'Allele_frequency_genome_EAS_GnomAD': false
-        };
+        this.state = {};
 	this.panelRef = React.createRef();
     }
 
@@ -106,14 +101,12 @@ class AlleleFrequencyField extends React.PureComponent {
             let popmax = parseFloat(variant.faf95_popmax_genome_GnomADv3) ? parseFloat(variant.faf95_popmax_genome_GnomADv3).toPrecision(4) : '-';
             return popmax + ' (' + variant.faf95_popmax_population_genome_GnomADv3 + ')';
         } else {
-            let popmax = parseFloat(variant.faf95_popmax_exome_GnomAD) ? parseFloat(variant.faf95_popmax_exome_GnomAD).toPrecision(4) : '-';
-            return popmax + ' (' + variant.faf95_popmax_population_exome_GnomAD + ')';
+            return '-';
         }
 
     }
 
     cleanRowTitle(title) {
-        title = title.replace(" (gnomAD V2.1 Exomes)", "");
         title = title.replace(" (gnomAD V3.1 Genomes)", "");
         title = title.replace(" (gnomAD v4.1 Joint)", "");
         // [v41-exome-disabled] title = title.replace(" (gnomAD v4.1 Exomes)", "");
@@ -184,9 +177,6 @@ class AlleleFrequencyField extends React.PureComponent {
             } else if (fieldName.toLowerCase().includes('genome')) {
                 variantId = variant.Variant_id_GnomADv3;
                 dataset = "gnomad_r3_non_cancer";
-            } else {
-                variantId = variant.Variant_id_GnomAD;
-                dataset = "gnomad_r2_1_non_cancer";
             }
             gnomadLink = "https://gnomad.broadinstitute.org/variant/" + variantId + "?dataset=" + dataset;
             if (chr === "17") {
@@ -224,18 +214,6 @@ class AlleleFrequencyField extends React.PureComponent {
             }
             isChart = true;
         } else if (fieldName === "gnomAD V3.1 Genomes, Non-Cancer (Numerical)") {
-            renderedRows = this.getRowsAndDetermineIfEmpty("GnomAD", field, variant, flag);
-        } else if (fieldName === "gnomAD V2.1 Exomes, Non-Cancer (Graphical)") {
-            const chartDesc = this.getChartDescriptor(field);
-            renderedRows =
-                chartDesc && typeof chartDesc.replace === "function"
-                    ? chartDesc.replace(variant, chartDesc.prop)
-                    : null;
-	    if (!variant.Variant_in_GnomAD || util.isEmptyField(variant['Allele_frequency_exome_GnomAD'])) {
-                allEmpty = true;
-            }
-            isChart = true;
-        } else if (fieldName === "gnomAD V2.1 Exomes, Non-Cancer (Numerical)") {
             renderedRows = this.getRowsAndDetermineIfEmpty("GnomAD", field, variant, flag);
         }
 

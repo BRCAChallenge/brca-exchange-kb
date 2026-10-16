@@ -287,25 +287,6 @@ const researchModeGroups = [
                     {title: 'Allele frequency Amish (gnomAD V3.1 Genomes)', prop: 'Allele_frequency_genome_AMI_GnomADv3', core: true}
                 ]
             },
-            {
-                source: "GnomAD Exomes",
-                chart: [
-                    {title: 'Allele Frequency Charts (gnomAD V2.1 Exomes)', prop: 'Allele_Frequency_Charts_Exome_GnomAD', replace: alleleFrequencyCharts, tableKey: false, dummy: true},
-                ],
-                data: [
-                    {title: 'Total Allele frequency (gnomAD V2.1 Exomes)', prop: 'Allele_frequency_exome_GnomAD', core: true},
-                    {title: 'Popmax Filtering Allele Frequency (95% confidence) (gnomAD V2.1 Exomes)', prop: 'faf95_popmax_exome_GnomAD', core: true},
-                    {title: 'Allele frequency African (gnomAD V2.1 Exomes)', prop: 'Allele_frequency_exome_AFR_GnomAD', core: true},
-                    {title: 'Allele frequency Latino (gnomAD V2.1 Exomes)', prop: 'Allele_frequency_exome_AMR_GnomAD', core: true},
-                    {title: 'Allele frequency Ashkenazi Jewish (gnomAD V2.1 Exomes)', prop: 'Allele_frequency_exome_ASJ_GnomAD', core: true},
-                    {title: 'Allele frequency East Asian (gnomAD V2.1 Exomes)', prop: 'Allele_frequency_exome_EAS_GnomAD', core: true},
-                    {title: 'Allele frequency Finnish (gnomAD V2.1 Exomes)', prop: 'Allele_frequency_exome_FIN_GnomAD', core: true},
-                    {title: 'Allele frequency Non-Finnish European (gnomAD V2.1 Exomes)', prop: 'Allele_frequency_exome_NFE_GnomAD', core: true},
-                    {title: 'Allele frequency Other (gnomAD V2.1 Exomes)', prop: 'Allele_frequency_exome_OTH_GnomAD', core: true},
-                    {title: 'Allele frequency South Asian (gnomAD V2.1 Exomes)', prop: 'Allele_frequency_exome_SAS_GnomAD', core: true},
-                ]
-
-            },
         ]
     },
 
@@ -608,33 +589,6 @@ const researchModeColumns = [
     {title: 'SAS Allele frequency (gnomAD V3.1 Genomes)', prop: 'Allele_frequency_genome_SAS_GnomADv3'},
     {title: 'MID Allele frequency (gnomAD V3.1 Genomes)', prop: 'Allele_frequency_genome_MID_GnomADv3'},
     {title: 'AMI Allele frequency (gnomAD V3.1 Genomes)', prop: 'Allele_frequency_genome_AMI_GnomADv3'},
-    {title: 'Allele frequency (gnomAD V2.1 Exomes)', prop: 'Allele_frequency_exome_GnomAD'},
-    {title: 'AFR Allele frequency (gnomAD V2.1 Exomes)', prop: 'Allele_frequency_exome_AFR_GnomAD'},
-    {title: 'AMR Allele frequency (gnomAD V2.1 Exomes)', prop: 'Allele_frequency_exome_AMR_GnomAD'},
-    {title: 'ASJ Allele frequency (gnomAD V2.1 Exomes)', prop: 'Allele_frequency_exome_ASJ_GnomAD'},
-    {title: 'EAS Allele frequency (gnomAD V2.1 Exomes)', prop: 'Allele_frequency_exome_EAS_GnomAD'},
-    {title: 'FIN Allele frequency (gnomAD V2.1 Exomes)', prop: 'Allele_frequency_exome_FIN_GnomAD'},
-    {title: 'NFE Allele frequency (gnomAD V2.1 Exomes)', prop: 'Allele_frequency_exome_NFE_GnomAD'},
-    {title: 'OTH Allele frequency (gnomAD V2.1 Exomes)', prop: 'Allele_frequency_exome_OTH_GnomAD'},
-    {title: 'SAS Allele frequency (gnomAD V2.1 Exomes)', prop: 'Allele_frequency_exome_SAS_GnomAD'},
-    {title: 'Allele frequency (gnomAD Genomes)', prop: 'Allele_frequency_genome_GnomAD'},
-    {title: 'AFR Allele frequency (gnomAD Genomes)', prop: 'Allele_frequency_genome_AFR_GnomAD'},
-    {title: 'AMR Allele frequency (gnomAD Genomes)', prop: 'Allele_frequency_genome_AMR_GnomAD'},
-    {title: 'ASJ Allele frequency (gnomAD Genomes)', prop: 'Allele_frequency_genome_ASJ_GnomAD'},
-    {title: 'EAS Allele frequency (gnomAD Genomes)', prop: 'Allele_frequency_genome_EAS_GnomAD'},
-    {title: 'FIN Allele frequency (gnomAD Genomes)', prop: 'Allele_frequency_genome_FIN_GnomAD'},
-    {title: 'NFE Allele frequency (gnomAD Genomes)', prop: 'Allele_frequency_genome_NFE_GnomAD'},
-    {title: 'OTH Allele frequency (gnomAD Genomes)', prop: 'Allele_frequency_genome_OTH_GnomAD'},
-    {title: 'SAS Allele frequency (gnomAD Genomes)', prop: 'Allele_frequency_genome_SAS_GnomAD'},
-    {title: 'Allele frequency (gnomAD Exomes)', prop: 'Allele_frequency_exome_GnomAD'},
-    {title: 'AFR Allele frequency (gnomAD Exomes)', prop: 'Allele_frequency_exome_AFR_GnomAD'},
-    {title: 'AMR Allele frequency (gnomAD Exomes)', prop: 'Allele_frequency_exome_AMR_GnomAD'},
-    {title: 'ASJ Allele frequency (gnomAD Exomes)', prop: 'Allele_frequency_exome_ASJ_GnomAD'},
-    {title: 'EAS Allele frequency (gnomAD Exomes)', prop: 'Allele_frequency_exome_EAS_GnomAD'},
-    {title: 'FIN Allele frequency (gnomAD Exomes)', prop: 'Allele_frequency_exome_FIN_GnomAD'},
-    {title: 'NFE Allele frequency (gnomAD Exomes)', prop: 'Allele_frequency_exome_NFE_GnomAD'},
-    {title: 'OTH Allele frequency (gnomAD Exomes)', prop: 'Allele_frequency_exome_OTH_GnomAD'},
-    {title: 'SAS Allele frequency (gnomAD Exomes)', prop: 'Allele_frequency_exome_SAS_GnomAD'},
     {title: 'Variant Frequency (LOVD)', prop: 'Variant_frequency_LOVD'},
     {title: 'In Silico Prior Probability', prop: 'applicablePrior'},
     {title: 'Protein-level Estimation', prop: 'proteinPrior'},
@@ -926,7 +880,7 @@ var ResearchVariantTableSupplier = function (Component) {
             } else if (source.toLowerCase() === "enigma_brca12_functional_assays") {
                 source = "ENIGMA BRCA12 Functional Assays";
             } else if (source.toLowerCase() === "gnomad") {
-                source = "gnomAD 2.1 Exomes";
+                source = "gnomAD";
             } else if (source.toLowerCase() === "gnomadv3") {
                 source = "gnomAD 3.1 Genomes";
             } else if (source.toLowerCase() === "esp") {
