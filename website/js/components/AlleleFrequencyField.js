@@ -96,10 +96,13 @@ class AlleleFrequencyField extends React.PureComponent {
         if (fieldName.includes("gnomAD v4.1 Joint")) {
             let popmax = parseFloat(variant.faf95_popmax_joint_GnomADv41) ? parseFloat(variant.faf95_popmax_joint_GnomADv41).toPrecision(4) : '-';
             return popmax + ' (' + variant.faf95_popmax_population_joint_GnomADv41 + ')';
-        } else if (fieldName.includes("gnomAD v4.1 Exomes")) {
-            let popmax = parseFloat(variant.faf95_popmax_exome_GnomADv41) ? parseFloat(variant.faf95_popmax_exome_GnomADv41).toPrecision(4) : '-';
-            return popmax + ' (' + variant.faf95_popmax_population_exome_GnomADv41 + ')';
-        } else if (fieldName.includes("Genomes, Non-Cancer (Graphical)")) {
+        }
+// [v41-exome-disabled] 
+//	else if (fieldName.includes("gnomAD v4.1 Exomes")) {
+//            let popmax = parseFloat(variant.faf95_popmax_exome_GnomADv41) ? parseFloat(variant.faf95_popmax_exome_GnomADv41).toPrecision(4) : '-';
+//            return popmax + ' (' + variant.faf95_popmax_population_exome_GnomADv41 + ')';
+//        } 
+	else if (fieldName.includes("Genomes, Non-Cancer (Graphical)")) {
             let popmax = parseFloat(variant.faf95_popmax_genome_GnomADv3) ? parseFloat(variant.faf95_popmax_genome_GnomADv3).toPrecision(4) : '-';
             return popmax + ' (' + variant.faf95_popmax_population_genome_GnomADv3 + ')';
         } else {
@@ -113,7 +116,7 @@ class AlleleFrequencyField extends React.PureComponent {
         title = title.replace(" (gnomAD V2.1 Exomes)", "");
         title = title.replace(" (gnomAD V3.1 Genomes)", "");
         title = title.replace(" (gnomAD v4.1 Joint)", "");
-        title = title.replace(" (gnomAD v4.1 Exomes)", "");
+        // [v41-exome-disabled] title = title.replace(" (gnomAD v4.1 Exomes)", "");
         return title;
     }
 
@@ -197,7 +200,7 @@ class AlleleFrequencyField extends React.PureComponent {
             }
         }
 
-        if (fieldName === "gnomAD v4.1 Joint (Graphical)" || fieldName === "gnomAD v4.1 Exomes (Graphical)") {
+        if (fieldName === "gnomAD v4.1 Joint (Graphical)" /* [v41-exome-disabled] || fieldName === "gnomAD v4.1 Exomes (Graphical)"*/) {
             const chartDesc = this.getChartDescriptor(field);
             renderedRows =
                 chartDesc && typeof chartDesc.replace === "function"
@@ -208,7 +211,7 @@ class AlleleFrequencyField extends React.PureComponent {
                 allEmpty = true;
             }
             isChart = true;
-        } else if (fieldName === "gnomAD v4.1 Joint (Numerical)" || fieldName === "gnomAD v4.1 Exomes (Numerical)") {
+        } else if (fieldName === "gnomAD v4.1 Joint (Numerical)" /* [v41-exome-disabled]|| fieldName === "gnomAD v4.1 Exomes (Numerical)"*/) {
             renderedRows = this.getRowsAndDetermineIfEmpty("GnomAD", field, variant, flag);
         } else if (fieldName === "gnomAD V3.1 Genomes, Non-Cancer (Graphical)") {
             const chartDesc = this.getChartDescriptor(field);

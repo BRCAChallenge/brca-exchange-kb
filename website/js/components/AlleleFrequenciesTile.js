@@ -13,8 +13,9 @@ const _ = require('underscore');
 const fieldsOfInterest = {
     'gnomAD v4.1 Joint (Graphical)': true,
     'gnomAD v4.1 Joint (Numerical)': false,
-    'gnomAD v4.1 Exomes (Graphical)': false,
-    'gnomAD v4.1 Exomes (Numerical)': false,
+// [v41-exome-disabled]
+//    'gnomAD v4.1 Exomes (Graphical)': false,
+//    'gnomAD v4.1 Exomes (Numerical)': false,
     'gnomAD V2.1 Exomes, Non-Cancer (Graphical)': true,
     'gnomAD V2.1 Exomes, Non-Cancer (Numerical)': false,
     'gnomAD V3.1 Genomes, Non-Cancer (Graphical)': true,
@@ -92,17 +93,18 @@ export default class AlleleFrequenciesTile extends React.Component {
             return dd.source === "GnomADv41 Joint";
         }).data, "gnomAD v4.1 Joint (Numerical)"];
 
-        const gnomadV41ExomeGraph = [_.find(data, function (dd) {
-            return dd.source === "GnomADv41 Exomes";
-        }).chart[0], "gnomAD v4.1 Exomes (Graphical)"];
-
-        const gnomadV41ExomeData = [_.find(data, function (dd) {
-            return dd.source === "GnomADv41 Exomes";
-        }).data, "gnomAD v4.1 Exomes (Numerical)"];
+// [v41-exome-disabled]
+//        const gnomadV41ExomeGraph = [_.find(data, function (dd) {
+//            return dd.source === "GnomADv41 Exomes";
+//        }).chart[0], "gnomAD v4.1 Exomes (Graphical)"];
+//
+//        const gnomadV41ExomeData = [_.find(data, function (dd) {
+//            return dd.source === "GnomADv41 Exomes";
+//        }).data, "gnomAD v4.1 Exomes (Numerical)"];
 
         const alleleFrequencyFields = [
 		gnomadExomeGraph, gnomadExomeData, gnomadGenomeGraph, gnomadGenomeData,
-		gnomadV41JointGraph, gnomadV41JointData, gnomadV41ExomeGraph, gnomadV41ExomeData
+		gnomadV41JointGraph, gnomadV41JointData /* [v41-exome-disabled] gnomadV41ExomeGraph, gnomadV41ExomeData */
 	];
 
         const renderedAlleleFrequencyFields = alleleFrequencyFields.map((field, idx) => {
@@ -128,8 +130,8 @@ export default class AlleleFrequenciesTile extends React.Component {
 
         // TODO: figure out how to determine if everything is empty even though variant is in GnomAD
         const allEmpty = !variant.Variant_in_GnomAD
-            && util.isEmptyField(variant.Allele_frequency_joint_GnomADv41)
-            && util.isEmptyField(variant.Allele_frequency_exome_GnomADv41);
+            && util.isEmptyField(variant.Allele_frequency_joint_GnomADv41);
+            // [v41-exome-disabled] && util.isEmptyField(variant.Allele_frequency_exome_GnomADv41)
 
         // create the source panel itself now
         const groupTitle = `source-panel-${this.props.sourceName}`;
