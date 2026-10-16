@@ -1328,7 +1328,6 @@ class VariantDetail extends React.Component {
                     )
                 }
 
-                { diffRows.length > 0 && (
                 <Row>
                     <Col md={{ span: 12, offset: 0 }}>
                         <DisclaimerModal buttonModal onToggleMode={this.props.toggleMode} text="Show Detail View for this Variant"/>
