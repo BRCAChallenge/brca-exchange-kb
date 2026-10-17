@@ -15,7 +15,7 @@ class AlleleFrequencyCharts extends React.Component {
         this.state = {
             scaleIndex: 0
         };
-        this.scaledChartRe = React.createRef();
+        this.scaledChartRef = React.createRef();
         this.toggleScale = this.toggleScale.bind(this);
     }
     shouldComponentUpdate(nextProps, nextState) {
@@ -39,9 +39,6 @@ class AlleleFrequencyCharts extends React.Component {
         let frequencyProps, title, pointFormat;
         
 	if (prop === 'Allele_Frequency_Charts_Genome_GnomADv3') {
-            if (!variant.Variant_in_GnomADv3) {
-                return null;
-            }
             frequencyProps = [
                 {label: 'AFR', prop: 'Allele_frequency_genome_AFR_GnomADv3'},
                 {label: 'AMR', prop: 'Allele_frequency_genome_AMR_GnomADv3'},

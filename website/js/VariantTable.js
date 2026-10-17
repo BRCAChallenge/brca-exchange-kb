@@ -11,7 +11,7 @@ import { Card, Col, Row, Collapse, Form, Button } from 'react-bootstrap';
 
 import ColumnCheckbox from './ColumnCheckbox';
 var {getDefaultExpertColumns, getDefaultResearchColumns, getAllSources} = require('./VariantTableDefaults');
-var alleleFrequencyCharts = require('./AlleleFrequencyCharts');
+import alleleFrequencyCharts from './AlleleFrequencyCharts';
 
 // TODO: Re-enable or replace after upgrading react-data-components-brcaex
 // require('react-data-components-brcaex/css/table-twbs.css');
