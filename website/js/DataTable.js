@@ -336,7 +336,7 @@ class DataTable extends React.Component {
             sortBy,
             search,
             mode,
-            searchColumn: _.keys(_.pick(columnSelection, v => v)),
+            column: _.keys(_.pick(columnSelection, v => v)),
             include: _.keys(_.pick(sourceSelection, v => v === 1)),
             exclude: _.keys(_.pick(sourceSelection, v => v === -1)),
             filterValues}, hgvs.filters(search, filterValues)));

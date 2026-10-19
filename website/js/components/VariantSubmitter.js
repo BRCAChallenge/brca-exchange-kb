@@ -18,9 +18,12 @@ const marksToReviewStatuses = {
 };
 
 export function computeReviewStatusScore(status) {
+    // DB now stores ClinVar's native text ("criteria provided, single submitter");
+    // the map below uses the old VCF-encoded form with underscores.
+    const normalized = (status || '').trim().toLowerCase().replace(/ /g, '_');
     // determine how many marks correspond to this review status
     for (let marksStatus of Object.entries(marksToReviewStatuses)) {
-        if (marksStatus[1].includes(status)) {
+        if (marksStatus[1].includes(normalized)) {
             return marksStatus[0];
         }
     }

@@ -18,7 +18,7 @@ from .models import (
     Report_in_ClinVar, Report_in_LOVD,
 )
 from .column_mapping import (
-    resolve_columns, DETAIL_COLUMNS,
+    resolve_columns, DETAIL_COLUMNS,PENDING_COLUMNS, DROPPED_COLUMNS,
     CLINVAR_REPORT_FIELDS, LOVD_REPORT_FIELDS, LOVD_ANCHOR_REPORT_FIELDS,
 )
 from django.views.decorators.http import require_http_methods
@@ -279,10 +279,14 @@ def index(request):
         return response
 
     elif format == 'json':
+        column = [c for c in column if c not in PENDING_COLUMNS | DROPPED_COLUMNS]
         try:
             query, values_fields = resolve_columns(query, column)
         except KeyError as e:
             return HttpResponseBadRequest('Unknown column(s): %s' % ', '.join(e.args[0]))
+        # primary key is always needed for row-click navigation (databaseKey.js)
+        if 'VRS_Digest' not in values_fields:
+            values_fields.insert(0, 'VRS_Digest')
         count = query.count()
         query = select_page(query, page_size, page_num)
         response = JsonResponse({'count': count, 'deletedCount': deleted_count, 'synonyms': synonyms_count, 'data': list(query.values(*values_fields))})
