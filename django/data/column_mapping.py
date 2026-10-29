@@ -12,11 +12,14 @@ Three kinds of mapping:
     genuinely dropped, or not yet resolved) and should be rejected.
 """
 
-from django.db.models import F, OuterRef, Subquery
+from django.db.models import Case, Exists, F, Func, OuterRef, Subquery, TextField, Value, When
 from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Coalesce, NullIf
 
-from .models import Report_in_ClinVar, Report_in_LOVD, Report_in_GnomAD, Genomic_Coordinates, AnalysisProvisionalEvidenceCodes
-
+from .models import ( 
+    Report_in_ClinVar, Report_in_LOVD, Report_in_GnomAD, Genomic_Coordinates, AnalysisProvisionalEvidenceCodes,
+    Variant_in_ClinVar, Variant_in_ENIGMA, Variant_in_LOVD, Variant_in_ExLOVD, Variant_in_GnomAD, Variant_in_Other,
+)
 
 def _genomic_coordinate_subquery(assembly, field='hgvs'):
     def build(outer_ref):
@@ -184,6 +187,99 @@ _POPFREQ_DISPLAY_METHOD = 'popfreq_1.2'
 _RENAMES['Provisional_Evidence_Code_Popfreq'] = _provisional_evidence_subquery(_POPFREQ_DISPLAY_METHOD, 'popfreq_code')
 _RENAMES['Provisional_Evidence_Description_Popfreq'] = _provisional_evidence_subquery(_POPFREQ_DISPLAY_METHOD, 'popfreq_description')
 
+# Summary columns that the old pipeline (aggregate_across_columns.py and
+# variant_merging.py) baked into the flat variant table. Nothing stores them
+# in the new schema, so they're derived here from the per-source tables at
+# query time.
+
+def _clean(expr):
+    """NULL for missing or '-' values, so they drop out of CONCAT_WS/COALESCE."""
+    return NullIf(expr, Value('-'), output_field=TextField())
+
+
+def _labeled(expr, label):
+    """'<value><label>', or NULL when the value is missing. Postgres' ||
+    propagates NULL, so a missing value drops its label too."""
+    return Func(
+        _clean(expr), Value(label),
+        template='(%(expressions)s)', arg_joiner=' || ', output_field=TextField(),
+    )
+
+
+def _join(sep, *exprs):
+    """CONCAT_WS skips NULLs, so separators only appear between real values.
+    Returns NULL (not '') when every part is missing."""
+    return NullIf(
+        Func(Value(sep), *exprs, function='CONCAT_WS', output_field=TextField()),
+        Value(''), output_field=TextField(),
+    )
+
+
+def _source_qs(model, outer_ref, **filters):
+    return model.objects.filter(VRS_Digest=OuterRef(outer_ref), **filters)
+
+
+def _pathogenicity_all():
+    # Old format: "<ENIGMA class>(ENIGMA); <ClinVar significance> (ClinVar)"
+    def build(outer_ref):
+        enigma = Subquery(_source_qs(Variant_in_ENIGMA, outer_ref).values('Clinical_significance')[:1])
+        clinvar = Subquery(_source_qs(Variant_in_ClinVar, outer_ref).values('Clinical_Significance')[:1])
+        return _join('; ', _labeled(enigma, '(ENIGMA)'), _labeled(clinvar, ' (ClinVar)'))
+    return ('subquery', build)
+
+
+def _allele_frequency():
+    # Old logic preferred gnomAD genome+exome combined; v4.1 joint *is* that.
+    # Falls back to v3.1 genomes. (ExAC/ESP/1000G fallbacks no longer exist.)
+    def af(version, data_type, outer_ref):
+        return _gnomad_subquery(version, data_type, field='Allele_frequency')[1](outer_ref)
+
+    def build(outer_ref):
+        return Coalesce(
+            _labeled(af('v4.1', 'joint', outer_ref), ' (gnomAD v4.1)'),
+            _labeled(af('v3', 'genome', outer_ref), ' (gnomAD v3.1)'),
+            output_field=TextField(),
+        )
+    return ('subquery', build)
+
+
+# Source names match the frontend's source keys (VariantTableDefaults.js)
+# minus the 'Variant_in_' prefix.
+_SOURCES = [
+    ('ENIGMA', Variant_in_ENIGMA, {}),
+    ('ClinVar', Variant_in_ClinVar, {}),
+    ('LOVD', Variant_in_LOVD, {}),
+    ('exLOVD', Variant_in_ExLOVD, {}),
+    ('GnomAD', Variant_in_GnomAD, {}),
+    ('ENIGMA_BRCA12_Functional_Assays', Variant_in_Other, {'data_type': 'functional_assay_results'}),
+]
+
+
+def _source():
+    # Old format: comma-separated list of contributing sources
+    def build(outer_ref):
+        return _join(',', *[
+            Case(When(Exists(_source_qs(model, outer_ref, **f)), then=Value(name)), output_field=TextField())
+            for name, model, f in _SOURCES
+        ])
+    return ('subquery', build)
+
+
+def _source_url():
+    # Per-source landing pages; ENIGMA has no URL in the new schema.
+    def build(outer_ref):
+        return _join(', ', *[
+            _clean(Subquery(_source_qs(model, outer_ref).values('Source_URL')[:1]))
+            for model in (Variant_in_ClinVar, Variant_in_LOVD, Variant_in_ExLOVD, Variant_in_GnomAD)
+        ])
+    return ('subquery', build)
+
+
+_RENAMES['Pathogenicity_all'] = _pathogenicity_all()
+_RENAMES['Allele_Frequency'] = _allele_frequency()
+_RENAMES['Source'] = _source()
+_RENAMES['Source_URL'] = _source_url()
+
 # ENIGMA functional-assay results: single JSONField on Variant_in_Other,
 # data_type='functional_assay_results'. A few keys were renamed from the old
 # column name; everything else is the same name with the suffix stripped.
@@ -279,8 +375,7 @@ DROPPED_COLUMNS = {
     'URL_ENIGMA', 'RNA_LOVD', 'HGVS_RNA', 'Mupit_Structure', 'Max_Allele_Frequency',
 }
 PENDING_COLUMNS = {
-    'Pathogenicity_all', 'Allele_Frequency', 'Allele_Frequency_Charts_Exome_GnomAD',
-    'Allele_Frequency_Charts_Genome_GnomADv3', 'Source', 'Source_URL',
+    'Allele_Frequency_Charts_Exome_GnomAD', 'Allele_Frequency_Charts_Genome_GnomADv3',
 }
 
 # Every resolvable column except ClinVar/LOVD, which the detail page renders
