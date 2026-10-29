@@ -108,7 +108,7 @@ class NavBarNew extends React.Component {
 
         return (
             <div className={classNames("navbar-container", {"beta": this.state.isBeta})}>
-            	<Navbar bg="light" expand="lg" fixed="top">
+            	<Navbar bg="light" expand="lg">
           		<Navbar.Brand as={Link} to="/">{brand}</Navbar.Brand>
           		<Navbar.Toggle aria-controls="main-navbar" />
           		<Navbar.Collapse id="main-navbar">

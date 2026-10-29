@@ -115,11 +115,9 @@ offending file, for future reference: website/node_modules/react-data-components
 /**************************************************************/
 
 .navbar-container {
-    height: 80px;
-}
-
-.navbar-container.beta {
-    height: 125px;
+    position: sticky;
+    top: 0;
+    z-index: 1030;
 }
 
 .navbar-brand {
@@ -202,12 +200,6 @@ offending file, for future reference: website/node_modules/react-data-components
 
     #research-label {
         font-size: 12px;
-    }
-}
-
-@media only screen and (max-width: 450px) {
-    .navbar-container.beta {
-        height: 300px;
     }
 }
 
@@ -709,7 +701,7 @@ div#main {
 .donation-bar {
     background: #FDE7FC;
     text-align: center;
-    margin: -10px auto 0 auto;
+    margin: 0 auto;
     padding: 10px;
 }
 
