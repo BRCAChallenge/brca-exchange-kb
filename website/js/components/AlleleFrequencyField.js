@@ -92,11 +92,11 @@ class AlleleFrequencyField extends React.PureComponent {
             let popmax = parseFloat(variant.faf95_popmax_joint_GnomADv41) ? parseFloat(variant.faf95_popmax_joint_GnomADv41).toPrecision(4) : '-';
             return popmax + ' (' + variant.faf95_popmax_population_joint_GnomADv41 + ')';
         }
-// [v41-exome-disabled] 
+// [v41-exome-disabled]
 //	else if (fieldName.includes("gnomAD v4.1 Exomes")) {
 //            let popmax = parseFloat(variant.faf95_popmax_exome_GnomADv41) ? parseFloat(variant.faf95_popmax_exome_GnomADv41).toPrecision(4) : '-';
 //            return popmax + ' (' + variant.faf95_popmax_population_exome_GnomADv41 + ')';
-//        } 
+//        }
 	else if (fieldName.includes("Genomes, Non-Cancer (Graphical)")) {
             let popmax = parseFloat(variant.faf95_popmax_genome_GnomADv3) ? parseFloat(variant.faf95_popmax_genome_GnomADv3).toPrecision(4) : '-';
             return popmax + ' (' + variant.faf95_popmax_population_genome_GnomADv3 + ')';

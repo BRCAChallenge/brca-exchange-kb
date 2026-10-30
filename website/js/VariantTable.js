@@ -567,7 +567,7 @@ const researchModeColumns = [
     {title: 'NFE Allele frequency (gnomAD v4.1 Joint)', prop: 'Allele_frequency_joint_NFE_GnomADv41'},
     {title: 'SAS Allele frequency (gnomAD v4.1 Joint)', prop: 'Allele_frequency_joint_SAS_GnomADv41'},
     {title: 'Remaining Allele frequency (gnomAD v4.1 Joint)', prop: 'Allele_frequency_joint_REMAINING_GnomADv41'},
-// [v41-exome-disabled]    
+// [v41-exome-disabled]
 //    {title: 'Allele frequency (gnomAD v4.1 Exomes)', prop: 'Allele_frequency_exome_GnomADv41'},
 //    {title: 'AFR Allele frequency (gnomAD v4.1 Exomes)', prop: 'Allele_frequency_exome_AFR_GnomADv41'},
 //    {title: 'AMR Allele frequency (gnomAD v4.1 Exomes)', prop: 'Allele_frequency_exome_AMR_GnomADv41'},

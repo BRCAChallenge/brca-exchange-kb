@@ -37,7 +37,7 @@ class AlleleFrequencyCharts extends React.Component {
     render() {
         let {variant, prop} = this.props;
         let frequencyProps, title, pointFormat;
-        
+
 	if (prop === 'Allele_Frequency_Charts_Genome_GnomADv3') {
             frequencyProps = [
                 {label: 'AFR', prop: 'Allele_frequency_genome_AFR_GnomADv3'},

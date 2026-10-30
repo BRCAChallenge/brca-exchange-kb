@@ -3,7 +3,7 @@ jobs:
    buildweb:
      circleci_ip_ranges: true
      docker:
-       - image: cimg/node:22.22
+       - image: cimg/node:24.22.2
        - image: cimg/postgres:18.4
          environment:
           POSTGRES_USER: postgres
@@ -45,7 +45,7 @@ jobs:
    deploy-dev:
      circleci_ip_ranges: true
      docker:
-       - image: cimg/node:22.22
+       - image: cimg/node:24.22.2
      steps:
        - checkout
        - run:
@@ -68,7 +68,7 @@ jobs:
    deploy-beta:
      circleci_ip_ranges: true
      docker:
-       - image: cimg/node:22.22
+       - image: cimg/node:24.22.2
      steps:
        - checkout
        - run:

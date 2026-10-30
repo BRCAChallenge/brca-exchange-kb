@@ -5,7 +5,7 @@ Fork the repository, make the changes, and submit pull request.
 ## Build the frontend
 The build is based on npm and webpack.
 * **Ensure that git and node are installed**
-   * Node >=22.21.1 is required (see `engines` in `package.json`). Use [nvm](https://github.com/nvm-sh/nvm) if you need to manage multiple versions.
+   * Node >=24.11.1 is required (Node 24 or 26 LTS recommended) (see `engines` in `package.json`). Use [nvm](https://github.com/nvm-sh/nvm) if you need to manage multiple versions.
 * **Start the frontend**
    * `cd website`
    * `npm install`

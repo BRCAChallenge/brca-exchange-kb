@@ -119,7 +119,6 @@ module.exports = {
       'rx.binding$': 'rx/dist/rx.binding',
       'rx.async$': 'rx/dist/rx.async',
       'rx.coincidence$': 'rx/dist/rx.coincidence',
-      'd3-tip$': require.resolve('d3-tip'),
       masonry: 'masonry-layout',
       isotope: 'isotope-layout'
     },
