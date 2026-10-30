@@ -181,12 +181,16 @@ export default class AlleleFrequenciesTile extends React.Component {
                             <Card.Body>
                                 <div className="tile-disclaimer">
                                     <div>
-                                        The gnomAD V3.1 data set used by BRCA Exchange is the “non-cancer” subset
-                                        of that source. Data from <a href="https://tcga-data.nci.nih.gov/docs/publications/tcga/about.html">TCGA</a>
+					gnomAD V3.1: the data displayed in BRCA Exchange are the “non-cancer” subset
+                                        Grpmax Filtering AF (95% confidence) Genomes. Data from <a href="https://tcga-data.nci.nih.gov/docs/publications/tcga/about.html">TCGA</a>
                                         &nbsp;and other cancer cohorts are excluded to ensure that the frequencies used
                                         to assess pathogenicity represent individuals not affected by cancer.
-					gnomAD v4.1 does not provide a non-cancer subset, so the v4.1 data shown here
-					are from the full data set.
+				    </div>
+				    <div>
+					gnomAD v4.1: the data displayed in BRCA Exchange is the Grpmax Filtering AF (95% confidence) of the “Total” data (Exomes and Genomes combined).
+					There are no subsets in V4.1 for the following reasons: given the large size of gnomAD v4 and the small size of any
+					single cohort, we do not feel that the prevalence of any disease is high enough
+					to warrant subsets - <a href="https://gnomad.broadinstitute.org/news/2023-11-gnomad-v4-0/">gnomAD v4.0 Release</a>.
                                     </div>
                                 </div>
                                 {renderedAlleleFrequencyFields}
