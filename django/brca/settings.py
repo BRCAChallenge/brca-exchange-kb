@@ -167,4 +167,7 @@ LOGGING = {
     }
 }
 
+DATABASE_ROUTERS = ["brca.routers.AppsRouter"]
+
+
 from .site_settings import *

@@ -2,7 +2,8 @@ import os
 
 ALLOWED_HOSTS = (
     'localhost:8080',
-    'localhost'
+    'localhost',
+	'brca-dev.gi.ucsc.edu'
 )
 
 # SECURITY WARNING: keep the secret key used in production secret!
@@ -12,7 +13,8 @@ CAPTCHA_SECRET = '6LdwNBwTAAAAABi4FQqI_W8qzPiuDypc4re1DjuI'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-URL_FRONTEND = 'http://localhost:8080/'
+#URL_FRONTEND = 'http://localhost:8080/'
+URL_FRONTEND = 'http://brca-dev.gi.ucsc.edu/'
 
 EMAIL_HOST = ''
 EMAIL_HOST_USER = ''
@@ -27,7 +29,8 @@ DATABASES = {
         'HOST': 'localhost',
         'NAME': 'storage.pg',
         'USER': 'postgres',
-        'PASSWORD': 'postgres'
+        'PASSWORD': 'postgres',
+        'OPTIONS': {'options': '-c search_path=' + os.environ.get('PIPELINE_SCHEMA', 'pipeline')},
     },
     'pipeline': {
         'ENGINE': 'django.db.backends.postgresql',
@@ -44,5 +47,13 @@ DATABASES = {
         'USER': 'postgres',
         'PASSWORD': 'postgres',
         'OPTIONS': {'options': '-c search_path=test_pipeline'},
+    },
+    'community': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'HOST': 'localhost',
+        'NAME': 'storage.pg',
+        'USER': 'postgres',
+        'PASSWORD': 'postgres',
+        'OPTIONS': {'options': '-c search_path=community'},
     },
 }
