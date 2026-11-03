@@ -5,7 +5,7 @@ import _ from 'lodash';
 import Highcharts from 'highcharts';
 import Chart from './Chart';
 
-require('highcharts/modules/broken-axis')(Highcharts);
+import 'highcharts/modules/broken-axis';
 
 /**
  * On top of each column, draw a zigzag line where the axis break is.
@@ -64,27 +64,32 @@ var defaultOptions = {
 };
 
 Highcharts.wrap(Highcharts.Axis.prototype, 'getLinePath', function (proceed, lineWidth) {
-    var axis = this,
-        path = proceed.call(this, lineWidth),
-        x = path[1],
-        y = path[2];
 
-    Highcharts.each(this.breakArray || [], function (brk) {
+    const axis = this;
+    const path = proceed.call(this, lineWidth);
+    // Since Highcharts 9 paths are arrays of segments: [['M', x, y], ['L', x, y]]
+    if (!Array.isArray(path) || !Array.isArray(path[0])) {
+        return path;
+    }
+    let [, x, y] = path[0];
+    const breaks = (axis.brokenAxis && axis.brokenAxis.breakArray) || [];
+
+    breaks.forEach(function (brk) {
         if (axis.horiz) {
             x = axis.toPixels(brk.from);
-            path.splice(3, 0,
-                'L', x - 4, y, // stop
-                'M', x - 9, y + 5, 'L', x + 1, y - 5, // left slanted line
-                'M', x - 1, y + 5, 'L', x + 9, y - 5, // higher slanted line
-                'M', x + 4, y
+            path.splice(1, 0,
+                ['L', x - 4, y], // stop
+                ['M', x - 9, y + 5], ['L', x + 1, y - 5], // left slanted line
+                ['M', x - 1, y + 5], ['L', x + 9, y - 5], // higher slanted line
+                ['M', x + 4, y]
             );
         } else {
             y = axis.toPixels(brk.from);
-            path.splice(3, 0,
-                'L', x, y - 4, // stop
-                'M', x + 5, y - 9, 'L', x - 5, y + 1, // lower slanted line
-                'M', x + 5, y - 1, 'L', x - 5, y + 9, // higher slanted line
-                'M', x, y + 4
+            path.splice(1, 0,
+                ['L', x, y - 4], // stop
+                ['M', x + 5, y - 9], ['L', x - 5, y + 1], // lower slanted line
+                ['M', x + 5, y - 1], ['L', x - 5, y + 9], // higher slanted line
+                ['M', x, y + 4]
             );
         }
     });

@@ -40,7 +40,7 @@ class ModeButton extends React.PureComponent {
 
         return (
             <OverlayTrigger placement='bottom' delay={{ show: 300, hide: 0 }} overlay={popper}>
-                <button type="button" id="research-label" className="btn btn-info btn-sm text-white fw-bold" style={{cursor: 'help'}} onClick={toggleMode}>
+                <button type="button" id="research-label" className={`btn ${mode === 'research_mode' ? 'btn-primary' : 'btn-info'} btn-sm text-white fw-bold`} style={{cursor: 'help'}} onClick={toggleMode}>
                     {`${mode === 'research_mode' ? "Detail" : "Summary"} View`}
                 </button>
             </OverlayTrigger>
@@ -108,7 +108,7 @@ class NavBarNew extends React.Component {
 
         return (
             <div className={classNames("navbar-container", {"beta": this.state.isBeta})}>
-            	<Navbar bg="light" expand="lg" fixed="top">
+            	<Navbar bg="light" expand="lg">
           		<Navbar.Brand as={Link} to="/">{brand}</Navbar.Brand>
           		<Navbar.Toggle aria-controls="main-navbar" />
           		<Navbar.Collapse id="main-navbar">

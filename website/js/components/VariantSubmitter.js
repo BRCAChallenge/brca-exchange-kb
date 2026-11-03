@@ -4,6 +4,7 @@ import React from "react";
 import {Collapse, Table} from "react-bootstrap";
 import util from '../util';
 import KeyInline from './KeyInline';
+import ExpandableText from './ExpandableText';
 
 import slugify from '../slugify';
 
@@ -17,9 +18,12 @@ const marksToReviewStatuses = {
 };
 
 export function computeReviewStatusScore(status) {
+    // DB now stores ClinVar's native text ("criteria provided, single submitter");
+    // the map below uses the old VCF-encoded form with underscores.
+    const normalized = (status || '').trim().toLowerCase().replace(/ /g, '_');
     // determine how many marks correspond to this review status
     for (let marksStatus of Object.entries(marksToReviewStatuses)) {
-        if (marksStatus[1].includes(status)) {
+        if (marksStatus[1].includes(normalized)) {
             return marksStatus[0];
         }
     }
@@ -122,9 +126,23 @@ export class VariantSubmitter extends React.PureComponent {
         const {submitter, cols, data} = this.props;
 
         // for each panel, construct key-value pairs as a row of the table
-        const submitterRows = cols.map(({prop, title, value, noHelpLink}) => {
+        const submitterRows = cols.map(({prop, title, value, noHelpLink, truncatable, truncateLimit, truncateMode}) => {
             const isEmptyValue = util.isEmptyField(value);
-            const rowItem = util.getFormattedFieldByProp(prop, data);
+            let rowItem = util.getFormattedFieldByProp(prop, data);
+
+            // For long free-text fields (e.g. 'Summary Evidence'), show a short
+            // preview with a "Click for More"/"Click for Less" toggle, rather than
+            // letting the submission panel stretch to fit the full text.
+            if (truncatable && !isEmptyValue) {
+                rowItem = (
+                    <ExpandableText
+                        content={rowItem}
+                        limit={truncateLimit}
+                        mode={truncateMode}
+                        relayoutGrid={this.props.relayoutGrid}
+                    />
+                );
+            }
 
             return (
                 <tr key={prop} className={ (isEmptyValue && this.props.hideEmptyItems) ? "variantfield-empty" : "" }>

@@ -14,12 +14,7 @@ class AlleleFrequencyField extends React.PureComponent {
     constructor(props) {
 	super(props);
         // identifies which subpopulation groups are expanded
-        this.state = {
-            'Allele_frequency_exome_NFE_GnomAD': false,
-            'Allele_frequency_exome_EAS_GnomAD': false,
-            'Allele_frequency_genome_NFE_GnomAD': false,
-            'Allele_frequency_genome_EAS_GnomAD': false
-        };
+        this.state = {};
 	this.panelRef = React.createRef();
     }
 
@@ -55,11 +50,15 @@ class AlleleFrequencyField extends React.PureComponent {
     generateHeader(field, fieldName, flag) {
         let fnLower = fieldName.toLowerCase();
         let isGenome = false;
+	let isJoint = false;
         let isGnomad = false;
         if (fnLower.includes('gnomad')) {
             isGnomad = true;
             if (fnLower.includes('genome')) {
                 isGenome = true;
+            }
+            if (fnLower.includes('joint')) {
+                isJoint = true;
             }
         }
 
@@ -68,9 +67,11 @@ class AlleleFrequencyField extends React.PureComponent {
                 <div className="allele-frequency-cell allele-frequency-label">
                     {
                         isGnomad
-                            ? isGenome
-                                ? <span className="allele-frequency-gnomad-header"><span className="genome-header">G</span><span className="fa fa-flag" style={{display: flag && !util.isEmptyField(flag) ? '' : 'none'}} /></span>
-                                : <span className="allele-frequency-gnomad-header"><span className="exome-header">E</span><span className="fa fa-flag" style={{display: flag && !util.isEmptyField(flag) ? '' : 'none'}} /></span>
+                            ? isJoint
+                                ? <span className="allele-frequency-gnomad-header"><span className="joint-header">J</span><span className="fa fa-flag" style={{display: flag && !util.isEmptyField(flag) ? '' : 'none'}} /></span>
+                                : isGenome
+                                    ? <span className="allele-frequency-gnomad-header"><span className="genome-header">G</span><span className="fa fa-flag" style={{display: flag && !util.isEmptyField(flag) ? '' : 'none'}} /></span>
+                                    : <span className="allele-frequency-gnomad-header"><span className="exome-header">E</span><span className="fa fa-flag" style={{display: flag && !util.isEmptyField(flag) ? '' : 'none'}} /></span>
                             : ''
                     }
                     {
@@ -87,19 +88,28 @@ class AlleleFrequencyField extends React.PureComponent {
 
     getPopMax(fieldName, variant) {
 
-        if (fieldName.includes("Genomes, Non-Cancer (Graphical)")) {
+        if (fieldName.includes("gnomAD v4.1 Joint")) {
+            let popmax = parseFloat(variant.faf95_popmax_joint_GnomADv41) ? parseFloat(variant.faf95_popmax_joint_GnomADv41).toPrecision(4) : '-';
+            return popmax + ' (' + variant.faf95_popmax_population_joint_GnomADv41 + ')';
+        }
+// [v41-exome-disabled]
+//	else if (fieldName.includes("gnomAD v4.1 Exomes")) {
+//            let popmax = parseFloat(variant.faf95_popmax_exome_GnomADv41) ? parseFloat(variant.faf95_popmax_exome_GnomADv41).toPrecision(4) : '-';
+//            return popmax + ' (' + variant.faf95_popmax_population_exome_GnomADv41 + ')';
+//        }
+	else if (fieldName.includes("Genomes, Non-Cancer (Graphical)")) {
             let popmax = parseFloat(variant.faf95_popmax_genome_GnomADv3) ? parseFloat(variant.faf95_popmax_genome_GnomADv3).toPrecision(4) : '-';
             return popmax + ' (' + variant.faf95_popmax_population_genome_GnomADv3 + ')';
         } else {
-            let popmax = parseFloat(variant.faf95_popmax_exome_GnomAD) ? parseFloat(variant.faf95_popmax_exome_GnomAD).toPrecision(4) : '-';
-            return popmax + ' (' + variant.faf95_popmax_population_exome_GnomAD + ')';
+            return '-';
         }
 
     }
 
     cleanRowTitle(title) {
-        title = title.replace(" (gnomAD V2.1 Exomes)", "");
         title = title.replace(" (gnomAD V3.1 Genomes)", "");
+        title = title.replace(" (gnomAD v4.1 Joint)", "");
+        // [v41-exome-disabled] title = title.replace(" (gnomAD v4.1 Exomes)", "");
         return title;
     }
 
@@ -159,12 +169,14 @@ class AlleleFrequencyField extends React.PureComponent {
             flag = variant.Flags_GnomAD;
             chr = variant.Chr;
             isGnomad = true;
-            if (fieldName.toLowerCase().includes('genome')) {
+            if (fieldName.includes('gnomAD v4.1')) {
+                // v4.1 is GRCh38: build gnomAD's chrom-pos-ref-alt id from the
+                // GRCh38 coordinates the detail API already returns
+                variantId = [chr, variant.Pos, variant.Ref, variant.Alt].join('-');
+                dataset = "gnomad_r4";
+            } else if (fieldName.toLowerCase().includes('genome')) {
                 variantId = variant.Variant_id_GnomADv3;
                 dataset = "gnomad_r3_non_cancer";
-            } else {
-                variantId = variant.Variant_id_GnomAD;
-                dataset = "gnomad_r2_1_non_cancer";
             }
             gnomadLink = "https://gnomad.broadinstitute.org/variant/" + variantId + "?dataset=" + dataset;
             if (chr === "17") {
@@ -178,7 +190,20 @@ class AlleleFrequencyField extends React.PureComponent {
             }
         }
 
-        if (fieldName === "gnomAD V3.1 Genomes, Non-Cancer (Graphical)") {
+        if (fieldName === "gnomAD v4.1 Joint (Graphical)" /* [v41-exome-disabled] || fieldName === "gnomAD v4.1 Exomes (Graphical)"*/) {
+            const chartDesc = this.getChartDescriptor(field);
+            renderedRows =
+                chartDesc && typeof chartDesc.replace === "function"
+                    ? chartDesc.replace(variant, chartDesc.prop)
+                    : null;
+            const totalProp = fieldName.includes("Joint") ? 'Allele_frequency_joint_GnomADv41' : 'Allele_frequency_exome_GnomADv41';
+            if (util.isEmptyField(variant[totalProp])) {
+                allEmpty = true;
+            }
+            isChart = true;
+        } else if (fieldName === "gnomAD v4.1 Joint (Numerical)" /* [v41-exome-disabled]|| fieldName === "gnomAD v4.1 Exomes (Numerical)"*/) {
+            renderedRows = this.getRowsAndDetermineIfEmpty("GnomAD", field, variant, flag);
+        } else if (fieldName === "gnomAD V3.1 Genomes, Non-Cancer (Graphical)") {
             const chartDesc = this.getChartDescriptor(field);
             renderedRows =
                 chartDesc && typeof chartDesc.replace === "function"
@@ -189,18 +214,6 @@ class AlleleFrequencyField extends React.PureComponent {
             }
             isChart = true;
         } else if (fieldName === "gnomAD V3.1 Genomes, Non-Cancer (Numerical)") {
-            renderedRows = this.getRowsAndDetermineIfEmpty("GnomAD", field, variant, flag);
-        } else if (fieldName === "gnomAD V2.1 Exomes, Non-Cancer (Graphical)") {
-            const chartDesc = this.getChartDescriptor(field);
-            renderedRows =
-                chartDesc && typeof chartDesc.replace === "function"
-                    ? chartDesc.replace(variant, chartDesc.prop)
-                    : null;
-	    if (!variant.Variant_in_GnomAD || util.isEmptyField(variant['Allele_frequency_exome_GnomAD'])) {
-                allEmpty = true;
-            }
-            isChart = true;
-        } else if (fieldName === "gnomAD V2.1 Exomes, Non-Cancer (Numerical)") {
             renderedRows = this.getRowsAndDetermineIfEmpty("GnomAD", field, variant, flag);
         }
 
@@ -252,7 +265,7 @@ class AlleleFrequencyField extends React.PureComponent {
                         </Table>
                         <div className="tile-disclaimer" style={{display: isGnomad && isChart && !util.isEmptyField(popmax) ? '' : 'none'}}>
                             <div>
-                                Popmax Filtering AF (95% confidence): { popmax }
+				{ fieldName.includes('gnomAD v4.1') ? 'Grpmax' : 'Popmax' } Filtering AF (95% confidence): { popmax }
                             </div>
                             <div>
                                 If the filter allele frequency of a variant is above the maximum credible population AF

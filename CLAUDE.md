@@ -3,7 +3,7 @@
 ## Stack
 - Django 5.2 / Python 3.13 / PostgreSQL 18 (Ubuntu 24.04, PGDG apt repo)
 - DRF + drf-spectacular for OpenAPI schema generation
-- Node.js 22 for any frontend tooling
+- Node.js 24+ (LTS) for any frontend tooling
 - Deployed and developed via VSCode Remote-SSH; DBeaver connects through an SSH tunnel for ad hoc schema exploration
 
 ## Domain context (assume this knowledge, don't re-explain it to me)

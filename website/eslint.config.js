@@ -8,6 +8,7 @@ module.exports = [
   js.configs.recommended,
   react.configs.flat.recommended,
   react.configs.flat["jsx-runtime"],
+  { settings: { react: { version: "19.3" } } },
   {
     files: ["js/**/*.js"],
     languageOptions: {
@@ -27,7 +28,6 @@ module.exports = [
       globals: {
         ...globals.browser,
         ...globals.node,
-        ...globals.es6,
         google: false,
         grecaptcha: false,
       },
@@ -88,7 +88,6 @@ module.exports = [
       globals: {
         ...globals.browser,
         ...globals.node,
-        ...globals.es6,
         ...globals.mocha,
       },
     },

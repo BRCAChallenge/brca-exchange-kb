@@ -7,7 +7,7 @@ import backend from 'backend';
 import PieChart from './PieChart';
 import BarChart from './BarChart';
 var Highcharts = require('highcharts');
-require('highcharts/modules/broken-axis')(Highcharts);
+import 'highcharts/modules/broken-axis';
 
 Highcharts.setOptions({
     lang: {

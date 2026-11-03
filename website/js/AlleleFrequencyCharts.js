@@ -15,6 +15,8 @@ class AlleleFrequencyCharts extends React.Component {
         this.state = {
             scaleIndex: 0
         };
+        this.scaledChartRef = React.createRef();
+        this.toggleScale = this.toggleScale.bind(this);
     }
     shouldComponentUpdate(nextProps, nextState) {
         if (this.props.variant !== nextProps.variant) {
@@ -35,27 +37,8 @@ class AlleleFrequencyCharts extends React.Component {
     render() {
         let {variant, prop} = this.props;
         let frequencyProps, title, pointFormat;
-        if (prop === 'Allele_Frequency_Charts_Exome_GnomAD') {
-            if (!variant['Variant_in_GnomAD']) {
-                return null;
-            }
-            frequencyProps = [
-                {label: 'AFR', prop: 'Allele_frequency_exome_AFR_GnomAD'},
-                {label: 'AMR', prop: 'Allele_frequency_exome_AMR_GnomAD'},
-                {label: 'ASJ', prop: 'Allele_frequency_exome_ASJ_GnomAD'},
-                {label: 'EAS', prop: 'Allele_frequency_exome_EAS_GnomAD'},
-                {label: 'FIN', prop: 'Allele_frequency_exome_FIN_GnomAD'},
-                {label: 'NFE', prop: 'Allele_frequency_exome_NFE_GnomAD'},
-                {label: 'SAS', prop: 'Allele_frequency_exome_SAS_GnomAD'},
-                {label: 'OTH', prop: 'Allele_frequency_exome_OTH_GnomAD'},
-            ];
-            title = 'gnomAD Exomes';
-            pointFormat =  "{point.y}<br /><em>({point.count} of {point.number})</em>";
-        }
-        else if (prop === 'Allele_Frequency_Charts_Genome_GnomADv3') {
-            if (!variant.Variant_in_GnomADv3) {
-                return null;
-            }
+
+	if (prop === 'Allele_Frequency_Charts_Genome_GnomADv3') {
             frequencyProps = [
                 {label: 'AFR', prop: 'Allele_frequency_genome_AFR_GnomADv3'},
                 {label: 'AMR', prop: 'Allele_frequency_genome_AMR_GnomADv3'},
@@ -70,6 +53,35 @@ class AlleleFrequencyCharts extends React.Component {
             ];
             title = 'gnomAD Genomes';
             pointFormat =  "{point.y}<br /><em>({point.count} of {point.number})</em>";
+        } else if (prop === 'Allele_Frequency_Charts_Joint_GnomADv41') {
+            frequencyProps = [
+                {label: 'AFR', prop: 'Allele_frequency_joint_AFR_GnomADv41'},
+                {label: 'AMR', prop: 'Allele_frequency_joint_AMR_GnomADv41'},
+                {label: 'AMI', prop: 'Allele_frequency_joint_AMI_GnomADv41'},
+                {label: 'ASJ', prop: 'Allele_frequency_joint_ASJ_GnomADv41'},
+                {label: 'EAS', prop: 'Allele_frequency_joint_EAS_GnomADv41'},
+                {label: 'FIN', prop: 'Allele_frequency_joint_FIN_GnomADv41'},
+                {label: 'MID', prop: 'Allele_frequency_joint_MID_GnomADv41'},
+                {label: 'NFE', prop: 'Allele_frequency_joint_NFE_GnomADv41'},
+                {label: 'SAS', prop: 'Allele_frequency_joint_SAS_GnomADv41'},
+                {label: 'RMN', prop: 'Allele_frequency_joint_REMAINING_GnomADv41'},
+            ];
+            title = 'gnomAD v4.1 Joint';
+            pointFormat = "{point.y}";
+// [v41-exome-disabled]        } else if (prop === 'Allele_Frequency_Charts_Exome_GnomADv41') {
+//            frequencyProps = [
+//                {label: 'AFR', prop: 'Allele_frequency_exome_AFR_GnomADv41'},
+//                {label: 'AMR', prop: 'Allele_frequency_exome_AMR_GnomADv41'},
+//                {label: 'ASJ', prop: 'Allele_frequency_exome_ASJ_GnomADv41'},
+//                {label: 'EAS', prop: 'Allele_frequency_exome_EAS_GnomADv41'},
+//                {label: 'FIN', prop: 'Allele_frequency_exome_FIN_GnomADv41'},
+//                {label: 'MID', prop: 'Allele_frequency_exome_MID_GnomADv41'},
+//                {label: 'NFE', prop: 'Allele_frequency_exome_NFE_GnomADv41'},
+//                {label: 'SAS', prop: 'Allele_frequency_exome_SAS_GnomADv41'},
+//                {label: 'RMN', prop: 'Allele_frequency_exome_REMAINING_GnomADv41'},
+//            ];
+//            title = 'gnomAD v4.1 Exomes';
+//            pointFormat = "{point.y}";
         } else {
             return null;
         }
