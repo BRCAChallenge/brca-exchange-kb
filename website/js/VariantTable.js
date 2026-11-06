@@ -47,7 +47,7 @@ const filterColumns = [
 const expertModeGroups = [
     {groupTitle: 'Alternate Names', internalGroupName: 'Variant Nomenclature', subtitle: 'Below are some of the aliases for this gene change.', innerCols: [
         {title: 'Gene', prop: 'Gene_Symbol', render: gene => <i>{gene}</i>},
-        {title: 'Coding Change (c.)', prop: 'HGVS_cDNA', render: nucleotide => nucleotide.split(':')[1]},
+        {title: 'Coding Change (c.)', prop: 'HGVS_cDNA', render: nucleotide => nucleotide.includes(':') ? nucleotide.split(':')[1] : nucleotide},
         // {title: 'Transcript Identifier', prop: 'Reference_Sequence'},
         // {title: 'HGVS RNA', prop: 'HGVS_RNA'},
         {title: 'Protein Change (p.)', prop: 'HGVS_Protein', render: protein => protein.split(':')[1]},

@@ -1175,7 +1175,7 @@ class VariantDetail extends React.Component {
                     <Col className="vcenterblock">
                         <div className='text-center Variant-detail-title' style={{textAlign: 'center'}}>
                             <h1 style={{marginTop: 30}}>
-                                {variant['Reference_Sequence']}(<i>{variant['Gene_Symbol']}</i>){`:${variant['HGVS_cDNA'].split(":")[1]}`}
+                                {variant['Reference_Sequence']}(<i>{variant['Gene_Symbol']}</i>){`:${variant['HGVS_cDNA'].includes(":") ? variant['HGVS_cDNA'].split(":")[1] : variant['HGVS_cDNA']}`}
                                 {
                                     (variant['HGVS_Protein'] && variant['HGVS_Protein'] !== "None") &&
                                         " " + variant['HGVS_Protein'].split(":")[1]
@@ -1309,7 +1309,7 @@ class VariantDetail extends React.Component {
                     <Row>
                         <Col md={12} className="variant-history-col">
                             <h3>
-                                {variant['Reference_Sequence']}(<i>{variant['Gene_Symbol']}</i>){`:${variant['HGVS_cDNA'].split(":")[1]}`}
+                                {variant['Reference_Sequence']}(<i>{variant['Gene_Symbol']}</i>){`:${variant['HGVS_cDNA'].includes(":") ? variant['HGVS_cDNA'].split(":")[1] : variant['HGVS_cDNA']}`}
                                 {
                                     (variant['HGVS_Protein'] && variant['HGVS_Protein'] !== "None") &&
                                     " " + variant['HGVS_Protein'].split(":")[1]
