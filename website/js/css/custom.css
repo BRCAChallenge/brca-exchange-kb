@@ -1367,7 +1367,7 @@ div.variant-submitter-group .submitter-header {
     background: #f2f7ff;
     cursor: pointer;
 
-    display: flex; flex-direction: row; width: 100%;
+    display: flex; flex-direction: row; flex-wrap: wrap; width: 100%;
     align-items: center;
 }
 div.variant-submitter-group .submitter-header.expanded {
@@ -1432,9 +1432,10 @@ div.variant-submitter-group .submitter-header td {
 }
 
 .submitter-header .submitter-cell.submitter-name {
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    overflow: hidden;
+    /* wrap long submitter names; once the name would get narrower than this,
+       the classification cell drops onto its own line instead */
+    min-width: 120px;
+    overflow-wrap: anywhere;
 }
 
 /* causes lower-priority header fields to be hidden when the screen isn't wide enough to display them */
