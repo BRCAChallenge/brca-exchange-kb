@@ -229,8 +229,14 @@ def sitemap(request):
 
 
 def variant_papers(request):
-    variant_id = request.GET.get('variant_id')
-    variant = Variant.objects.get(VRS_Digest=variant_id)
+    variant_id = (request.GET.get('variant_id') or '').strip()
+    # accept a CA ID (as /variant/ and the /variant_literature/ route use) or a VRS digest
+    if variant_id.lower().startswith('ca'):
+        variant = Variant.objects.filter(CA_ID__iexact=variant_id).first()
+    else:
+        variant = Variant.objects.filter(VRS_Digest=variant_id).first()
+    if variant is None:
+        return JsonResponse({"data": [], "error": f"Unknown variant: {variant_id}"}, status=404)
     variantpapers = Variant_in_Paper.objects.select_related('Paper').filter(VRS_Digest=variant).all()
     for variantpaper in variantpapers:
         # year of 0000 means year could not be found during a crawl

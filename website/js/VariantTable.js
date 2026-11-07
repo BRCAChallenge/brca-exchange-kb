@@ -47,7 +47,7 @@ const filterColumns = [
 const expertModeGroups = [
     {groupTitle: 'Alternate Names', internalGroupName: 'Variant Nomenclature', subtitle: 'Below are some of the aliases for this gene change.', innerCols: [
         {title: 'Gene', prop: 'Gene_Symbol', render: gene => <i>{gene}</i>},
-        {title: 'Coding Change (c.)', prop: 'HGVS_cDNA', render: nucleotide => nucleotide.split(':')[1]},
+        {title: 'Coding Change (c.)', prop: 'HGVS_cDNA', render: nucleotide => nucleotide.includes(':') ? nucleotide.split(':')[1] : nucleotide},
         // {title: 'Transcript Identifier', prop: 'Reference_Sequence'},
         // {title: 'HGVS RNA', prop: 'HGVS_RNA'},
         {title: 'Protein Change (p.)', prop: 'HGVS_Protein', render: protein => protein.split(':')[1]},
@@ -60,7 +60,7 @@ const expertModeGroups = [
         // {title: 'Genomic Nomenclature (GRCh37)', prop: 'Genomic_Coordinate_hg37'}
     ]},
 
-    {groupTitle: 'Overall Assessment of Clinical Significance', internalGroupName: 'Significance (ENIGMA)', subtitle: 'This assessment was made either by the ClinGen Variant Curation Expert Panel, the internationally-recognized expert body for genetic variation in this gene, or by a consensus of the laboratories that share their assessments with ClinVar.', innerCols: [
+    {groupTitle: 'Overall Assessment of Clinical Significance', internalGroupName: 'Significance (ENIGMA)', subtitle: 'This is the definitive classification for this variant. This assessment was made either by the ClinGen Variant Curation Expert Panel, the internationally-recognized expert body for genetic variation in this gene, or by a consensus of the laboratories that share their assessments with ClinVar.', innerCols: [
         {title: 'Clinical Significance', prop: 'Pathogenicity_expert'},
         // {title: 'IARC Class', prop: 'Clinical_significance_ENIGMA'},
         {title: 'Comment on Clinical Significance', prop: 'Comment_on_clinical_significance_ENIGMA', truncatable: true},
@@ -73,7 +73,7 @@ const expertModeGroups = [
         // {title: 'ClinVar Accession', prop: 'ClinVarAccession_ENIGMA'}
     ]},
 
-    {groupTitle: 'Clinical Significance (ClinVar)', internalGroupName: 'Significance (ClinVar)', subtitle: 'Clinical significance assessments shared with ClinVar.', reportSource: 'ClinVar',
+    {groupTitle: 'Clinical Significance (ClinVar)', internalGroupName: 'Significance (ClinVar)', subtitle: 'These clinical significance assessments are submitted to ClinVar by genetic testing laboratories, Variant Curation Expert Panels (VCEPs), researchers, and others. Submitters independently evaluate variants based on available evidence and may reach different conclusions.', reportSource: 'ClinVar',
         reportBinding: {
             sortBy: (a, b) => {
                 // sort first by stars, then by date in reverse chronological order

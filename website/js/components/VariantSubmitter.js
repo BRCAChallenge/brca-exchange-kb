@@ -107,7 +107,7 @@ export class VariantSubmitter extends React.PureComponent {
 
                 <div
                     className={`submitter-cell submitter-name ${!this.props.expanded ? 'collapsed' : ''}`}
-                    style={{textAlign: 'left', flex: '1 1 auto'}}
+                    style={{textAlign: 'left', flex: '1 1 0'}}
                 >
                 { util.abbreviatedSubmitter(submitter) }
                 </div>

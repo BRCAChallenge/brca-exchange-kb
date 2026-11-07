@@ -12,22 +12,26 @@ Three kinds of mapping:
     genuinely dropped, or not yet resolved) and should be rejected.
 """
 
-from django.db.models import Case, Exists, F, Func, OuterRef, Subquery, TextField, Value, When
+from django.db.models import Case, Exists, F, Func, IntegerField, OuterRef, Subquery, TextField, Value, When
 from django.db.models.fields.json import KeyTextTransform
-from django.db.models.functions import Coalesce, NullIf
+from django.db.models.functions import Cast, Coalesce, Length, NullIf
 
 from .models import ( 
     Report_in_ClinVar, Report_in_LOVD, Report_in_GnomAD, Genomic_Coordinates, AnalysisProvisionalEvidenceCodes,
     Variant_in_ClinVar, Variant_in_ENIGMA, Variant_in_LOVD, Variant_in_ExLOVD, Variant_in_GnomAD, Variant_in_Other,
 )
 
-def _genomic_coordinate_subquery(assembly, field='hgvs'):
+def _coord_int(field):
+    """pos/end_pos are TextFields that may hold '-'; return them as integers (or NULL)."""
+    return Cast(NullIf(NullIf(field, Value('')), Value('-')), IntegerField())
+
+
+def _genomic_coordinate_subquery(assembly, field='hgvs', expr=None):
     def build(outer_ref):
-        return Subquery(
-            Genomic_Coordinates.objects
-            .filter(VRS_Digest=OuterRef(outer_ref), assembly=assembly)
-            .values(field)[:1]
-        )
+        qs = Genomic_Coordinates.objects.filter(VRS_Digest=OuterRef(outer_ref), assembly=assembly)
+        if expr is not None:
+            return Subquery(qs.annotate(_value=expr).values('_value')[:1])
+        return Subquery(qs.values(field)[:1])
     return ('subquery', build)
 
 
@@ -173,13 +177,14 @@ _RENAMES['Genomic_Coordinate_hg38'] = _genomic_coordinate_subquery('GRCh38')
 # won't crash.
 _RENAMES['Ref'] = _genomic_coordinate_subquery('GRCh38', field='ref')
 _RENAMES['Alt'] = _genomic_coordinate_subquery('GRCh38', field='alt')
-_RENAMES['Pos'] = _genomic_coordinate_subquery('GRCh38', field='pos')
-_RENAMES['Hg38_Start'] = _genomic_coordinate_subquery('GRCh38', field='pos')
-_RENAMES['Hg38_End'] = _genomic_coordinate_subquery('GRCh38', field='end_pos')
+_RENAMES['Pos'] = _genomic_coordinate_subquery('GRCh38', expr=_coord_int('pos'))
+_RENAMES['Hg38_Start'] = _genomic_coordinate_subquery('GRCh38', expr=_coord_int('pos'))
+_RENAMES['Hg38_End'] = _genomic_coordinate_subquery('GRCh38', expr=Coalesce(
+    _coord_int('end_pos'), _coord_int('pos') + Length('ref') - 1))
 
 # GRCh37 chromosome/position, used by the "Beacons" external link.
 _RENAMES['Chr'] = _genomic_coordinate_subquery('GRCh37', field='chr')
-_RENAMES['Hg37_Start'] = _genomic_coordinate_subquery('GRCh37', field='pos')
+_RENAMES['Hg37_Start'] = _genomic_coordinate_subquery('GRCh37', expr=_coord_int('pos'))
 
 # Provisional ACMG popfreq evidence: one row per (variant, method_name). The
 # UI shows the popfreq_1.2 method.

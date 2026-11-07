@@ -153,7 +153,7 @@ class LiteratureTable extends React.Component {
 	    this.subscriptions.push(sub);
         }
 
-	const papersId = this.props.variant ? this.props.variant.id : routeId;
+	const papersId = this.props.variant ? this.props.variant.VR_ID : routeId;
 	if (papersId) {
 	    const sub = backend.variantPapers(papersId).subscribe(
             resp => {
@@ -281,7 +281,11 @@ class LiteratureTable extends React.Component {
         let litResultsExist = false;
         let litRows = (
             <tr>
-                <td colSpan={2} style={{textAlign: 'center'}}><i>No literature results for this variant.</i></td>
+                <td colSpan={2} style={{textAlign: 'center'}}>
+                    {this.state.paperError
+                        ? <span className="text-danger">{this.state.paperError}</span>
+                        : <i>No literature results for this variant.</i>}
+                </td>
             </tr>
         );
 
@@ -346,7 +350,7 @@ class LiteratureTable extends React.Component {
 
                     { this.state.papers && this.state.papers.length > this.props.maxRows && variant
                         ? ( <div style={{textAlign: "center", marginBottom: '1em'}}>
-                                <Link to={`/variant_literature/${variant.id}`}>
+                                <Link to={`/variant_literature/${variant.CA_ID || variant.VR_ID}`}>
                                     View {`${this.state.papers.length - this.props.maxRows}`} more publications...
                                 </Link>
                             </div>
