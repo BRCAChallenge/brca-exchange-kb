@@ -81,6 +81,16 @@ def _provisional_evidence_subquery(method_name, field):
         )
     return ('subquery', build)
 
+def _provisional_evidence_subquery(method_name, field):
+    def build(outer_ref):
+        return Subquery(
+            AnalysisProvisionalEvidenceCodes.objects
+            .filter(VRS_Digest=OuterRef(outer_ref), method_name=method_name)
+            .values(field)[:1]
+        )
+    return ('subquery', build)
+
+
 _GNOMAD_POPULATIONS = ['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'SAS', 'MID', 'AMI']
 _GNOMAD_V41_POPULATIONS = ['AFR', 'AMI', 'AMR', 'ASJ', 'EAS', 'FIN', 'MID', 'NFE', 'REMAINING', 'SAS']
 
@@ -284,6 +294,12 @@ _RENAMES['Pathogenicity_all'] = _pathogenicity_all()
 _RENAMES['Allele_Frequency'] = _allele_frequency()
 _RENAMES['Source'] = _source()
 _RENAMES['Source_URL'] = _source_url()
+
+# Provisional ACMG popfreq evidence: one row per (variant, method_name). The
+# UI shows the popfreq_1.2 method.
+_POPFREQ_DISPLAY_METHOD = 'popfreq_1.2'
+_RENAMES['Provisional_Evidence_Code_Popfreq'] = _provisional_evidence_subquery(_POPFREQ_DISPLAY_METHOD, 'popfreq_code')
+_RENAMES['Provisional_Evidence_Description_Popfreq'] = _provisional_evidence_subquery(_POPFREQ_DISPLAY_METHOD, 'popfreq_description')
 
 # ENIGMA functional-assay results: single JSONField on Variant_in_Other,
 # data_type='functional_assay_results'. A few keys were renamed from the old
