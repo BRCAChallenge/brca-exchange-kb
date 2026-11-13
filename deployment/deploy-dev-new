@@ -1,0 +1,45 @@
+#!/bin/bash
+# Incomplete! Please replace deploy-dev with this when complete
+# This script does not update the dev database
+# To run this script:
+# - ssh to brca-dev server
+# - git clone the repo and check out desired branch
+# ./deploy-dev-new
+set -o nounset
+set -o errexit
+
+USER=brca
+
+# directory of this file
+DEPLOYMENT="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+WEBSITE=${DEPLOYMENT}/../website
+
+# Deploy Frontend ======
+# TODO: Script should confirm the installed npm version is sufficient before proceeding
+cd ${WEBSITE}
+npm install
+npm run build:prod
+# Copy built frontend over (not preserving owner/group)
+sudo -u ${USER} rsync -rlptD --delete --rsync-path='rsync' build/ /var/www/html/beta
+# Copy over config.js
+sudo -u ${USER} cp /home/brca/site_settings/config.beta.js /var/www/html/beta/config.js
+
+# Deploy Backend =====
+# TODO : Script should confirm that the installed /var/www/backend/beta/virtualenv3 version
+# is consistent with the python version listed in  django/wsgi.py  
+
+# Copy backend files over
+sudo -u ${USER} rsync -rlptD --delete --exclude="/uploads" --exclude="/downloads/*" --rsync-path='rsync' ${DEPLOYMENT}/../django/ /var/www/backend/beta/django
+# Set up uploads dir
+sudo -u ${USER} mkdir -p /var/www/backend/beta/django/uploads
+sudo chown -R www-data:www-data /var/www/backend/beta/django/uploads
+
+# TODO put the (private) captcha key into site_settings.py
+
+# What this version doesn't do: (Should it? See original deploy-dev)
+# - Delete and reinstall the venv if it's missing or the python version is wrong,
+#   including installing requirements from requirements.txt
+# - Reinstall the requirements into the virtual environment
+# - update site-settings.py (copying brca's ~/site_settings/site_settings.beta.py)
+# - apply migrations (manage.py migrate --noinput --verbosity 2)
+# - restart apache 
