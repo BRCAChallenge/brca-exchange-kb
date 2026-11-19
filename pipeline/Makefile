@@ -101,12 +101,12 @@ LOCAL_PIPELINE_ENV = \
 # chain, since each level's auto-generated requires() clones its OWN parameter value
 # (defaulting per-class otherwise) rather than reading the leaf class's CLI flag directly.
 PIPELINE_ARGS := \
-	--PipelineParams-gene-config-path $(GENE_CONFIG_PIPELINE) \
+	--PipelineParams-gene-config-path $(abspath $(GENE_CONFIG_PIPELINE)) \
 	--PipelineParams-seq-repo-dir $(VCF_ASSEMBLY_SEQ_REPO_DIR) \
 	--PipelineParams-file-parent-dir $(VCF_ASSEMBLY_OUT_DIR) \
 	--PipelineParams-output-dir $(VCF_ASSEMBLY_OUT_DIR) \
 	--PipelineParams-db-schema $(PIPELINE_DB_SCHEMA) \
-	--gene-config $(GENE_CONFIG_PIPELINE) \
+	--gene-config $(abspath $(GENE_CONFIG_PIPELINE)) \
 	$(DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW_FLAG) \
 	--workers $(LUIGI_WORKERS)
 
@@ -154,6 +154,7 @@ setup-vep-cache: ## Download Ensembl VEP homo_sapiens GRCh38 cache (~15 GB)
 start-vep-server: build-vep-server ## Start VEP REST server on VEP_PORT (default 8888) if not already running
 	@echo "Starting VEP REST server..."
 	[ $$(docker ps -f name=$(VEP_CONTAINER) | wc -l) -gt 1 ] || \
+	docker start $(VEP_CONTAINER) 2>/dev/null || \
 	docker run -d --name $(VEP_CONTAINER) \
 	  --restart unless-stopped \
 	  -p $(VEP_PORT):8080 \
@@ -169,6 +170,7 @@ stop-vep-server: ## Stop and remove the VEP REST server container
 start-local-uta: ## starting local uta docker container
 	@echo "Starting local UTA docker..."
 	[ `docker ps -f name=$(UTA_CONTAINER) | wc -l` -gt 1 ] || \
+	docker start $(UTA_CONTAINER) 2>/dev/null || \
 	docker run -dit --name $(UTA_CONTAINER) \
           -v /tmp:/tmp -v $(UTA_VOLUME):/var/lib/postgresql/data \
           -e $(UTA_PG_PW) -p $(UTA_PORT):5432 \
@@ -194,7 +196,10 @@ download-seqrepo: ## Download seq repo data locally (no Docker; seqrepo pull ski
 	[ -d $(LOG_DIR)/tmp/seqrepo_venv ] || python -m venv $(LOG_DIR)/tmp/seqrepo_venv
 	. $(LOG_DIR)/tmp/seqrepo_venv/bin/activate
 	pip install -q biocommons.seqrepo
-	seqrepo -v --root-directory $(VCF_ASSEMBLY_SEQ_REPO_ROOT) pull --update-latest
+	# The pull needs rsync (port 873) to dl.biocommons.org; if that's unreachable,
+	# fall back to the existing local snapshot rather than failing the release.
+	seqrepo -v --root-directory $(VCF_ASSEMBLY_SEQ_REPO_ROOT) pull --update-latest || \
+	{ [ -d $(VCF_ASSEMBLY_SEQ_REPO_DIR) ] && echo "WARNING: seqrepo pull failed; using existing $$(readlink -f $(VCF_ASSEMBLY_SEQ_REPO_DIR))"; }
 
 run-pipeline: ## Run the current luigi pipeline locally (no Docker); output logged to PIPELINE_LOG, not the console
 	@echo "Running Luigi pipeline..."
@@ -258,8 +263,11 @@ test-coverage: ## Running pipeline unit tests with coverage information locally 
 build-release: ## create new data release; output logged to BUILD_RELEASE_LOG, not the console (run-pipeline's Luigi output still goes to its own PIPELINE_LOG)
 	mkdir -p $(dir $(BUILD_RELEASE_LOG))
 	@echo "Build-release log: $(BUILD_RELEASE_LOG)"
-	$(MAKE) PIPELINE_LOG=$(PIPELINE_LOG) checkout setup-files download-resources download-seqrepo start-local-uta start-seqrepo-rest-service start-vep-server run-pipeline variants-by-source > $(BUILD_RELEASE_LOG) 2>&1
+	$(MAKE) PIPELINE_LOG=$(PIPELINE_LOG) checkout setup-files download-resources download-seqrepo start-local-uta start-seqrepo-rest-service start-vep-server run-pipeline > $(BUILD_RELEASE_LOG) 2>&1
 
+# TODO: variants-by-source reads built_with_change_types.tsv, which only the old
+# CompileVCFFiles workflow writes; workflow.variant_analysis doesn't produce it yet.
+# Kept out of build-release until it's ported to the new schema pipeline.
 variants-by-source: ## postprocessing: compute statistics for changes with respect to the last release
 	PYTHONPATH=$(PYTHONPATH_PIPELINE) python $(PYTHONPATH_PIPELINE)/utilities/variantsBySource.py -i $(VCF_ASSEMBLY_OUT_DIR)/output/release/built_with_change_types.tsv -c true
 
