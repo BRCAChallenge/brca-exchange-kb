@@ -1,5 +1,6 @@
 from django.db import models
 from django.db.models import JSONField
+from django.db.models.fields.json import KeyTextTransform
 from django.contrib.postgres.fields import ArrayField
 
 
@@ -389,6 +390,111 @@ class AnalysisProvisionalEvidenceCodes(models.Model):
     class Meta:
         db_table = 'analysis_provisional_evidence_codes'
         unique_together = (('VRS_Digest', 'method_name'),)
+
+
+class AnalysisHerediClassify(models.Model):
+    """HerediClassify ACMG classification results for a variant.
+
+    One row per variant per run. Everything describing how a result was produced
+    -- the run label, the gnomAD release its frequency rules were fed, the tool
+    and config versions, when it was classified -- lives in provenance_metadata;
+    the classification itself is in the typed columns and the rules object.
+    """
+    VRS_Digest              = models.ForeignKey(Variant, on_delete=models.CASCADE,
+                                                related_name='herediclassify_results',
+                                                db_column='VRS_Digest')
+    provenance_metadata     = models.JSONField()
+
+    # Derived from provenance_metadata so the run label is a real, indexable
+    # column that can carry the uniqueness constraint, while the JSON stays the
+    # single source of truth. Postgres computes it; it cannot drift.
+    method_name             = models.GeneratedField(
+                                  expression=KeyTextTransform('method_name', 'provenance_metadata'),
+                                  output_field=models.TextField(),
+                                  db_persist=True)
+
+    classification_protein  = models.IntegerField(null=True)   # ACMG class 1-5
+    classification_splicing = models.IntegerField(null=True)   # ACMG class 1-5
+    # {rule_name: {rule_type, evidence_type, status, strength, comment}}. JSON
+    # rather than columns because the rule set is config-driven: the BRCA1/BRCA2
+    # configs can gain or drop rules without a schema change. Note PVS1 appears
+    # as exactly one of PVS1 / PVS1_protein / PVS1_splicing per variant.
+    rules                   = models.JSONField(null=True, blank=True)
+    VA_Spec                 = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'analysis_herediclassify'
+        unique_together = (('VRS_Digest', 'method_name'),)
+        indexes = [
+            models.Index(fields=['classification_protein'],
+                         name='herediclassify_class_prot_idx'),
+            # GIN so per-rule questions ("which variants met BA1") and
+            # provenance filters stay fast without extra columns.
+            GinIndex(fields=['rules'], name='herediclassify_rules_gin'),
+            GinIndex(fields=['provenance_metadata'], name='herediclassify_prov_gin'),
+        ]
+
+
+class AnalysisAriane(models.Model):
+    """ARIANE ACMG classification results for a variant.
+
+    One row per variant per run, shaped deliberately like
+    AnalysisHerediClassify so the two can be compared without translation:
+    provenance_metadata describes how the result was produced, method_name is
+    derived from it and carries the uniqueness constraint, and the service's
+    response is stored whole across criteria and result_detail.
+    """
+    VRS_Digest          = models.ForeignKey(Variant, on_delete=models.CASCADE,
+                                            related_name='ariane_results',
+                                            db_column='VRS_Digest')
+    provenance_metadata = models.JSONField()
+
+    method_name         = models.GeneratedField(
+                              expression=KeyTextTransform('method_name', 'provenance_metadata'),
+                              output_field=models.TextField(),
+                              db_persist=True)
+
+    # The ARIANE release that classified the variant ("1.9.11"). ARIANE reports
+    # it per result, as application_version; the loader stores it under this key.
+    ariane_version      = models.GeneratedField(
+                              expression=KeyTextTransform('ariane_version', 'provenance_metadata'),
+                              output_field=models.TextField(),
+                              db_persist=True)
+    # The deployed build ("626d234"). ARIANE exposes this only on /api/resources,
+    # not per result, so it is the build current at the query script's most
+    # recent check -- refreshed hourly and on any version change, so accurate to
+    # within about an hour. The exact per-result identity is the
+    # classifier_fingerprint kept in provenance_metadata.
+    build_version       = models.GeneratedField(
+                              expression=KeyTextTransform('build_version', 'provenance_metadata'),
+                              output_field=models.TextField(),
+                              db_persist=True)
+
+    # {criterion_name: {applies, strength, points, reason, decision_path, ...}}.
+    # ARIANE returns this as an array of only the criteria that applied; the
+    # loader re-keys it by name (dropping the redundant "name" from each value)
+    # so it matches AnalysisHerediClassify.rules and "did PVS1 apply" is the
+    # key-existence test `criteria ? 'PVS1'`.
+    criteria            = models.JSONField(null=True, blank=True)
+    # Everything else the service returned, including the classification scalars
+    # (predicted_class, predicted_label, total_points, pathogenic_points,
+    # benign_points, evidence_direction), the narrative and both audits.
+    # criteria + result_detail partition the response: nothing stored twice,
+    # nothing discarded.
+    result_detail       = models.JSONField(null=True, blank=True)
+    VA_Spec             = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'analysis_ariane'
+        unique_together = (('VRS_Digest', 'method_name'),)
+        indexes = [
+            # Restricting to one engine version is the common filter when
+            # comparing classifiers.
+            models.Index(fields=['ariane_version'], name='ariane_version_idx'),
+            GinIndex(fields=['criteria'], name='ariane_criteria_gin'),
+            GinIndex(fields=['result_detail'], name='ariane_detail_gin'),
+            GinIndex(fields=['provenance_metadata'], name='ariane_prov_gin'),
+        ]
 
 
 class AnalysisPriors(models.Model):

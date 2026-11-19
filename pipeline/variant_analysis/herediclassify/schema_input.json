@@ -1,0 +1,242 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "description": "Copied unmodified from HerediClassify (https://github.com/akatzke/HerediClassify, GPL-3.0), API/schema_input.json at commit 22905fad9602b31582e89960435cc5611818cede; used by test_export_herediclassify_input.py to validate exported input JSONs.",
+  "type": "object",
+  "properties": {
+    "chr": {
+      "type": "string"
+    },
+    "pos": {
+      "type": "integer"
+    },
+    "gene": {
+      "type": "string"
+    },
+    "ref": {
+      "type": "string"
+    },
+    "alt": {
+      "type": "string"
+    },
+    "variant_type": {
+      "type": "array",
+      "minItems" : 1,
+      "items": {"type" : "string"}
+    },
+    "variant_effect": {
+      "type": "array",
+      "items": [
+        {
+          "type": "object",
+          "properties": {
+            "transcript": {
+              "type": "string",
+              "pattern" : "ENST[0-9]{5,15}"
+            },
+            "hgvs_c": {
+              "type": "string",
+              "pattern" : "[ncC]\\.\\S+"
+            },
+            "hgvs_p": {
+              "type": ["string", "null"],
+              "pattern" : "[pP]\\.\\S+"
+            },
+            "variant_type": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"type" : "string"}
+            },
+            "exon": {
+              "type": ["integer", "null"]
+            },
+            "intron": {
+              "type" : ["integer", "null"]
+            }
+          },
+          "required": [
+            "transcript",
+            "hgvs_c",
+            "variant_type"
+          ]
+        }
+      ]
+    },
+    "splicing_prediction_tools": {
+      "type": "object",
+      "properties": {
+        "SpliceAI": {
+          "type": "number",
+          "minimum" : 0,
+          "maximum" : 1
+        }
+      },
+      "required": [
+        "SpliceAI"
+      ]
+    },
+    "pathogenicity_prediction_tools": {
+      "type": "object",
+      "properties": {
+        "REVEL": {
+          "type": "number",
+          "minimum" : 0,
+          "maximum" : 1
+        },
+        "BayesDel": {
+          "type": "number",
+          "minimum" : -1.29334,
+          "maximum" : 0.75731
+        }
+      }
+    },
+    "gnomAD": {
+      "type": "object",
+      "properties": {
+        "AF": {
+          "type": "number",
+          "minimum" : 0,
+          "maximum" : 1
+        },
+        "AC": {
+          "type": "integer",
+          "minimum" : 0
+        },
+        "AC_hom": {
+          "type": "integer",
+          "minimum" : 0
+        },
+        "subpopulation": {
+          "type": "string",
+          "pattern" : "[A-Z]{3}"
+        },
+        "popmax_AF": {
+          "type": "number",
+          "minimum" : 0,
+          "maximum" : 1
+        },
+        "popmax_AC": {
+          "type" : "integer",
+          "minimum": 0
+        },
+        "faf_popmax_AF": {
+          "type": "number",
+          "minimum" : 0,
+          "maximum" : 1
+        }
+      },
+      "required": [
+        "AF",
+        "AC",
+        "subpopulation",
+        "popmax_AF",
+        "popmax_AC",
+        "faf_popmax_AF"
+      ]
+    },
+    "FLOSSIES": {
+      "type": "object",
+      "properties": {
+        "AFR": {
+          "type": "integer",
+          "minimum" : 0
+        },
+        "EUR": {
+          "type": "integer",
+          "minimum" : 0
+        }
+      },
+      "required": [
+        "AFR",
+        "EUR"
+      ]
+    },
+    "cancer_hotspots": {
+      "type": "object",
+      "properties": {
+        "AF": {
+          "type": "number",
+          "minimum" : 0,
+          "maximum" : 1
+        },
+        "AC": {
+          "type": "integer",
+          "minimum" : 0
+        }
+      }
+    },
+    "mRNA_analysis": {
+      "type": "array",
+      "items" : [
+        { "type": "object",
+          "properteis" :{
+            "minigene" : {
+              "type": "boolean"
+            },
+            "patient_rna" : {
+              "type": "boolean"
+            },
+            "allelic" : {
+              "type": "str"
+            },
+            "quantification" :{
+              "type": ["float", "null"]
+            }
+          },
+          "required": [
+            "minigene",
+            "patient_rna",
+            "allelic",
+            "quantification"
+          ]
+        }
+      ]
+    },
+    "functional_data" : {
+      "type" : "array",
+      "items": [
+        {
+        "type": "object",
+        "properties": {
+          "pathogenic" :{
+            "type": "boolean"
+          },
+          "benign" : {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "pathogenic",
+          "benign"
+        ]
+      }
+      ]
+    },
+    "prior": {
+      "type": "number"
+    },
+    "co-occurrence": {
+      "type": "number"
+    },
+    "segregation": {
+      "type": "number"
+    },
+    "multifactorial_log-likelihood": {
+      "type": "number"
+    },
+    "picadar_score" : {
+      "type" : "integer"
+    },
+    "modified_picadar_score" : {
+      "type" : "integer"
+    }
+  },
+  "required": [
+    "chr",
+    "pos",
+    "gene",
+    "ref",
+    "alt",
+    "variant_type",
+    "variant_effect"
+  ]
+}
