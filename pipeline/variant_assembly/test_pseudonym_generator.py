@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch, call
 import pytest
 import hgvs.exceptions
 
-from data_merging.pseudonym_generator import (
+from variant_assembly.pseudonym_generator import (
     ensure_mane_transcript_cdna,
     _init_hgvs_tools,
     HGVS_CDNA_COL,

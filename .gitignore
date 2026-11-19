@@ -20,3 +20,4 @@ htmlcov
 /deployment/site_settings/*prod*
 __pycache__/
 *.pyc
+*.dump

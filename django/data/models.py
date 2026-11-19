@@ -2,8 +2,6 @@ from django.db import models
 from django.db.models import JSONField
 from django.db.models.fields.json import KeyTextTransform
 from django.contrib.postgres.fields import ArrayField
-from django.contrib.postgres.indexes import GinIndex
-from postgres_copy import CopyManager
 
 
 class LegacyJSONField(JSONField):
@@ -36,6 +34,16 @@ class DataRelease(models.Model):
     md5sum = models.TextField()
     created = models.DateTimeField(auto_now_add=True, null=True)
     name = models.PositiveIntegerField()
+
+    # Static, stored release-over-release stats. The old schema computed these
+    # live from a per-release Variant history with a Change_Type FK, neither of
+    # which exist in the finalized schema (Variant is current-state-only), so
+    # these are plain columns instead. variants_classified is a placeholder
+    # (always 0) until classification-change tracking is designed.
+    variants_added = models.PositiveIntegerField(default=0)
+    variants_modified = models.PositiveIntegerField(default=0)
+    variants_deleted = models.PositiveIntegerField(default=0)
+    variants_classified = models.PositiveIntegerField(default=0)
 
     class Meta:
         db_table = "data_release"
@@ -101,6 +109,21 @@ class Variant_in_ClinVar(models.Model):
     VRS_Digest = models.OneToOneField(Variant, primary_key=True, on_delete=models.CASCADE, related_name='clinvar_data', db_column='VRS_Digest')
 
     Source_URL = models.TextField()
+
+    # VCV-level aggregate germline classification
+    Variation_ID = models.TextField(default='-')
+    VCV_Accession = models.TextField(default='-')
+    VCV_Version = models.TextField(default='-')
+    Clinical_Significance = models.TextField(default='-')
+    Review_Status = models.TextField(default='-')
+    Date_Last_Evaluated = models.TextField(default='-')
+    Number_Of_Submissions = models.TextField(default='-')
+    Number_Of_Submitters = models.TextField(default='-')
+    Most_Recent_Submission = models.TextField(default='-')
+    Explanation = models.TextField(default='-')
+    Conditions = models.TextField(default='-')
+    Condition_DB_IDs = models.TextField(default='-')
+    Date_Last_Updated = models.TextField(default='-')
 
     class Meta:
         db_table = 'variant_clinvar'

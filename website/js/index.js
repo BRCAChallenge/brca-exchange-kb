@@ -832,7 +832,7 @@ class VariantDetail extends React.Component {
             const dataNow = this.state.data;
             const variantVersionIdx = dataNow.findIndex(x => x.id === parseInt(this.getParamId()));
             const variant = dataNow[variantVersionIdx] || dataNow[0];
-            document.title = `${variant['HGVS_cDNA'].split(":")[1]} (${variant['Gene_Symbol']}) - BRCA Exchange`;
+            document.title = `${variant['HGVS_cDNA']} (${variant['Gene_Symbol']}) - BRCA Exchange`;
         }
     }
 
@@ -920,9 +920,15 @@ class VariantDetail extends React.Component {
             let version = data[i];
             let diff = version.Diff;
             let release = version.Data_Release;
+            // the finalized schema has no per-release history - Variant/
+            // report rows are current-state-only, so there's nothing to
+            // show a change history for.
+            if (release === null || release === undefined) {
+                continue;
+            }
             let highlightRow = false;
             var diffHTML = [];
-            if (diff !== null) {
+            if (diff !== null && diff !== undefined) {
                 for (var j = 0; j < diff.length; j++) {
                     let fieldDiff = diff[j];
                     let fieldName = fieldDiff.field;
@@ -1197,7 +1203,9 @@ class VariantDetail extends React.Component {
                     : util.isEmptyField(variant[prop]);
 
                 if (title === "Beacons") {
-                    if (variant.Ref.length > 1 || variant.Alt.length > 1) {
+                    if (util.isEmptyField(variant.Ref) || util.isEmptyField(variant.Alt) ||
+                        util.isEmptyField(variant.Chr) || util.isEmptyField(variant.Hg37_Start) ||
+                        variant.Ref.length > 1 || variant.Alt.length > 1) {
                         isEmptyValue = true;
                     } else {
                         let websiteUrl = `https://beacon-network.org/#/search?chrom=${variant.Chr}&pos=${variant.Hg37_Start}&ref=${variant.Ref}&allele=${variant.Alt}&rs=GRCh37`;
@@ -1393,7 +1401,7 @@ class VariantDetail extends React.Component {
                                             <h1 style={{marginTop: 30}}>{variant.Genomic_HGVS_38 ? variant.Genomic_HGVS_38 : variant.Genomic_Coordinate_hg38}</h1>
                                             <div><i>or</i></div>
                                             <h3 style={{marginTop: 10}}>
-                                                {variant['Reference_Sequence']}(<i>{variant['Gene_Symbol']}</i>){`:${variant['HGVS_cDNA'].split(":")[1]}`}
+                                                {variant['Reference_Sequence']}(<i>{variant['Gene_Symbol']}</i>){`:${variant['HGVS_cDNA']}`}
                                                 {
                                                     (variant['HGVS_Protein'] && variant['HGVS_Protein'] !== "None") &&
                                                         " " + variant['HGVS_Protein'].split(":")[1]
@@ -1509,7 +1517,7 @@ class VariantDetail extends React.Component {
                 <Row>
                     <Col md={12} className="variant-history-col">
                         <h3>
-                            {variant['Reference_Sequence']}(<i>{variant['Gene_Symbol']}</i>){`:${variant['HGVS_cDNA'].split(":")[1]}`}
+                            {variant['Reference_Sequence']}(<i>{variant['Gene_Symbol']}</i>){`:${variant['HGVS_cDNA']}`}
                             {
                                 (variant['HGVS_Protein'] && variant['HGVS_Protein'] !== "None") &&
                                 " " + variant['HGVS_Protein'].split(":")[1]
@@ -1527,6 +1535,7 @@ class VariantDetail extends React.Component {
                     )
                 }
 
+                { diffRows.length > 0 && (
                 <Row>
                     <Col md={12} className="variant-history-col">
                         <h4>Variant History:</h4>
@@ -1546,6 +1555,7 @@ class VariantDetail extends React.Component {
                         <p style={{display: this.props.mode === "research_mode" ? 'none' : 'block' }}>There may be additional changes to this variant, as well as changes to corresponding submissions. Click &quot;Show Detail View for this Variant&quot; to see these changes.</p>
                     </Col>
                 </Row>
+                )}
 
                 {this.props.mode === "research_mode" ? clinvarDiffRows : ''}
                 {this.props.mode === "research_mode" ? lovdDiffRows : ''}
