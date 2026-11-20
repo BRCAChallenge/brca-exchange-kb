@@ -154,10 +154,6 @@ export function getFormattedFieldByProp(prop, variant) {
 
     if (prop === "Gene_Symbol") {
         rowItem = <i>{variant[prop]}</i>;
-    } else if (prop === "URL_ENIGMA") {
-        if (!isEmptyField(variant[prop])) {
-            rowItem = <a target="_blank" href={variant[prop]} rel="noreferrer">link to multifactorial analysis</a>;
-        }
     } else if (prop === "SCV_ClinVar" && !isEmptyField(variant[prop]) && variant[prop].toLowerCase().indexOf("scv") !== -1) {
         // Link all clinvar submissions back to clinvar
         let accessions = variant[prop].split(',');

@@ -11,7 +11,6 @@ const allSources = {
     "Variant_in_1000_Genomes": 1,
     "Variant_in_ExAC": 1,
     "Variant_in_LOVD": 1,
-    "Variant_in_BIC": 1,
     "Variant_in_ESP": 1,
     "Variant_in_exLOVD": 1,
     "Variant_in_ENIGMA_BRCA12_Functional_Assays": 1,

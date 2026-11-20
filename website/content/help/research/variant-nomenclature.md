@@ -10,8 +10,6 @@ The name of the gene on which the variant was found, as named by the HGNC. This 
 A nomenclature system standardized by the Human Genome Variation Society \(HGVS\) which utilizes coordinates to name variants across genomic DNA, coding DNA, RNA, and protein molecules. Each coordinate provides an indicator of the biomolecule being referred to \('c.', 'g.', 'p.'\), a location in that biomolecule \('12345'\), and an indication of what changed in the variant \('G&gt;A', 'insA', 'dupT', 'del15', 'Asp...Asn'\). Most variant aliases utilize this standard nomenclature:
   * ##### HGVS Nucleotide ((HGVS_cDNA))
     HGVS variant alias which references the nucleotide change based on the location in the coding DNA, not the genomic DNA.
-  * ##### HGVS RNA ((HGVS_RNA))
-    The variant alias that uses RNA location.
   * ##### HGVS Protein ((HGVS_Protein))
     The predicted protein-level change \(if any\) that would be introduced by the genomic variant.
   * ##### Genomic Nomenclature GRCh38 ((Genomic_Coordinate_hg38))
