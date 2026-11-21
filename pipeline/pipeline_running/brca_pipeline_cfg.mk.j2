@@ -36,6 +36,12 @@ GIT_COMMIT := {{ GIT_COMMIT }}
 RESOURCES_DIR := {{ RESOURCES_DIR|default(WORK_DIR + "/resources") }}
 PRIORS_REFERENCES := {{ PRIORS_REFERENCES|default(WORK_DIR + "/references") }}
 
+# Whether DownloadGnomADCoverage (workflow/variant_assembly.py) should recompute the
+# gnomAD coverage parquets from raw gnomAD data instead of downloading the pre-built
+# parquets from brcaexchange.org (the default). Set by generate_release.py's
+# --run-gnomad-coverage-estimation flag.
+DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW := {{ RUN_GNOMAD_COVERAGE_ESTIMATION|default("false") }}
+
 ## UTA configurations
 
 {% set UTA_RELEASE_DATE = UTA_RELEASE_DATE|default("20241220") %}

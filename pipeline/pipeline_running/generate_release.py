@@ -328,6 +328,18 @@ Example usage:
     )
 
     parser.add_argument(
+        "--run-gnomad-coverage-estimation",
+        dest="run_gnomad_coverage_estimation",
+        action="store_true",
+        help="Recompute the gnomAD coverage parquets from raw gnomAD coverage data "
+             "(DownloadGnomADCoverage in workflow/variant_assembly.py) instead of the "
+             "default of downloading the pre-built parquets from brcaexchange.org. "
+             "Slow -- downloads and reprocesses full genome/exome coverage summaries; "
+             "the resulting parquets are copied back into the resources directory for "
+             "future releases to reuse. Default: off (download the pre-built parquets)."
+    )
+
+    parser.add_argument(
         "gene_config_filename",
         type=str,
         nargs='?',
@@ -344,6 +356,7 @@ def print_run_summary(
     gene_config_filename: str,
     git_commit: str,
     previous_release_dir: Optional[Path],
+    run_gnomad_coverage_estimation: bool = False,
 ) -> None:
     print(f"=== BRCA Exchange Release Generator ===")
     print(f"Data Date: {data_date}")
@@ -352,6 +365,7 @@ def print_run_summary(
     print(f"Gene Configuration: {gene_config_filename}")
     print(f"Git Commit: {git_commit}")
     print(f"Previous Release Dir: {previous_release_dir or '(none -- defaulting to working directory)'}")
+    print(f"Recompute gnomAD Coverage (vs. download pre-built): {run_gnomad_coverage_estimation}")
     print("=" * 40)
 
 
@@ -364,6 +378,7 @@ def build_template_context(
     gene_config_filename: str,
     db_schema: str,
     previous_release_dir: Optional[Path],
+    run_gnomad_coverage_estimation: bool = False,
 ) -> dict[str, str]:
     """Build the Jinja2 context for rendering brca_pipeline_cfg.mk.j2."""
     context = {
@@ -374,6 +389,7 @@ def build_template_context(
         "GIT_COMMIT": git_commit,
         "GENE_CONFIG_FILENAME": gene_config_filename,
         "DB_SCHEMA": db_schema,
+        "RUN_GNOMAD_COVERAGE_ESTIMATION": "true" if run_gnomad_coverage_estimation else "false",
     }
     if previous_release_dir is not None:
         context["PREVIOUS_RELEASE_DIR"] = str(previous_release_dir)
@@ -419,7 +435,8 @@ def main() -> int:
     work_dir = root_dir / f"data_release_{data_date.replace('-', '_')}"
     db_schema = work_dir.name
 
-    print_run_summary(data_date, work_dir, args.gene_config_filename, git_commit, previous_release_dir)
+    print_run_summary(data_date, work_dir, args.gene_config_filename, git_commit, previous_release_dir,
+                       args.run_gnomad_coverage_estimation)
 
     # Create working directory
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -449,6 +466,7 @@ def main() -> int:
     context = build_template_context(
         data_date, work_dir, code_base, credentials_path, git_commit,
         args.gene_config_filename, db_schema, previous_release_dir,
+        args.run_gnomad_coverage_estimation,
     )
     generate_config(template_path, config_path, context)
     print_config_ready(config_path, code_base / "pipeline")

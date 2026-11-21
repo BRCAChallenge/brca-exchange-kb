@@ -47,6 +47,24 @@ ifneq ($(strip $(VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF)),)
 VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF_FLAG = --previous-spliceai-vcf $(VCF_ANALYSIS_PREVIOUS_SPLICEAI_VCF)
 endif
 
+# Whether workflow.variant_assembly.DownloadGnomADCoverage should recompute the gnomAD
+# coverage parquets from raw gnomAD coverage data instead of downloading the pre-built
+# parquets from brcaexchange.org (the default -- fast, and normally a no-op since
+# download-resources already staged the same files into RESOURCES_DIR). Override from
+# generate_release.py (--run-gnomad-coverage-estimation) or directly as
+# DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW=true.
+#
+# DownloadGnomADCoverage is a plain luigi.Task (not a luigi.Config like
+# PipelineParams), and it lives in workflow.variant_assembly while the root
+# task runs out of workflow.variant_analysis -- so luigi only recognizes its
+# CLI flag in the fully module-qualified form below, and since compute_new is
+# a BoolParameter with implicit (store_true) parsing, the flag must be passed
+# bare (no value) and only when true.
+DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW ?= false
+ifeq ($(strip $(DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW)),true)
+DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW_FLAG = --workflow.variant-assembly.DownloadGnomADCoverage-compute-new
+endif
+
 LUIGI_ROOT_TASK = $(VCF_ANALYSIS_ROOT_TASK)
 LUIGI_WORKERS = 8
 LUIGI_LOG_LEVEL ?= WARNING
@@ -71,12 +89,25 @@ LOCAL_PIPELINE_ENV = \
 	UTA_DB_URL=$(VCF_ASSEMBLY_UTA_DB_URL) \
 	PYTHONPATH=$(PYTHONPATH_PIPELINE)
 
+# --gene-config below is DownloadGnomADCoverage's own gene_config parameter (distinct
+# from --PipelineParams-gene-config-path above), inherited via @requires into
+# ProvideGnomADv41JointVCF/ProvideGnomADv41ExomeVCF/VRSAnnotateGnomADv41 -- without it
+# those tasks silently default to gene_config_brca_only.txt and never pick up a
+# per-release gene set (verified: this silently dropped PALB2 from gnomAD v4.1 data on
+# the palb2 release, since the joint/exome VCFs came back with zero chr16 rows).
+# Unlike DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW_FLAG above, this must be passed at the ROOT
+# task (unprefixed, not module-qualified as --DownloadGnomADCoverage-gene-config) --
+# only the root-level flag actually threads a value down through the whole @requires
+# chain, since each level's auto-generated requires() clones its OWN parameter value
+# (defaulting per-class otherwise) rather than reading the leaf class's CLI flag directly.
 PIPELINE_ARGS := \
-	--PipelineParams-gene-config-path $(GENE_CONFIG_PIPELINE) \
+	--PipelineParams-gene-config-path $(abspath $(GENE_CONFIG_PIPELINE)) \
 	--PipelineParams-seq-repo-dir $(VCF_ASSEMBLY_SEQ_REPO_DIR) \
 	--PipelineParams-file-parent-dir $(VCF_ASSEMBLY_OUT_DIR) \
 	--PipelineParams-output-dir $(VCF_ASSEMBLY_OUT_DIR) \
 	--PipelineParams-db-schema $(PIPELINE_DB_SCHEMA) \
+	--gene-config $(abspath $(GENE_CONFIG_PIPELINE)) \
+	$(DOWNLOAD_GNOMAD_COVERAGE_COMPUTE_NEW_FLAG) \
 	--workers $(LUIGI_WORKERS)
 
 RUN_TASK_CMD = $(LOCAL_PIPELINE_ENV) python -m luigi --module $(VCF_ANALYSIS_MODULE)
@@ -123,6 +154,7 @@ setup-vep-cache: ## Download Ensembl VEP homo_sapiens GRCh38 cache (~15 GB)
 start-vep-server: build-vep-server ## Start VEP REST server on VEP_PORT (default 8888) if not already running
 	@echo "Starting VEP REST server..."
 	[ $$(docker ps -f name=$(VEP_CONTAINER) | wc -l) -gt 1 ] || \
+	docker start $(VEP_CONTAINER) 2>/dev/null || \
 	docker run -d --name $(VEP_CONTAINER) \
 	  --restart unless-stopped \
 	  -p $(VEP_PORT):8080 \
@@ -138,6 +170,7 @@ stop-vep-server: ## Stop and remove the VEP REST server container
 start-local-uta: ## starting local uta docker container
 	@echo "Starting local UTA docker..."
 	[ `docker ps -f name=$(UTA_CONTAINER) | wc -l` -gt 1 ] || \
+	docker start $(UTA_CONTAINER) 2>/dev/null || \
 	docker run -dit --name $(UTA_CONTAINER) \
           -v /tmp:/tmp -v $(UTA_VOLUME):/var/lib/postgresql/data \
           -e $(UTA_PG_PW) -p $(UTA_PORT):5432 \
@@ -163,7 +196,10 @@ download-seqrepo: ## Download seq repo data locally (no Docker; seqrepo pull ski
 	[ -d $(LOG_DIR)/tmp/seqrepo_venv ] || python -m venv $(LOG_DIR)/tmp/seqrepo_venv
 	. $(LOG_DIR)/tmp/seqrepo_venv/bin/activate
 	pip install -q biocommons.seqrepo
-	seqrepo -v --root-directory $(VCF_ASSEMBLY_SEQ_REPO_ROOT) pull --update-latest
+	# The pull needs rsync (port 873) to dl.biocommons.org; if that's unreachable,
+	# fall back to the existing local snapshot rather than failing the release.
+	seqrepo -v --root-directory $(VCF_ASSEMBLY_SEQ_REPO_ROOT) pull --update-latest || \
+	{ [ -d $(VCF_ASSEMBLY_SEQ_REPO_DIR) ] && echo "WARNING: seqrepo pull failed; using existing $$(readlink -f $(VCF_ASSEMBLY_SEQ_REPO_DIR))"; }
 
 run-pipeline: ## Run the current luigi pipeline locally (no Docker); output logged to PIPELINE_LOG, not the console
 	@echo "Running Luigi pipeline..."
@@ -173,10 +209,14 @@ run-pipeline: ## Run the current luigi pipeline locally (no Docker); output logg
 	. $(LOG_DIR)/tmp/luigi_venv/bin/activate
 	pip install -q -r requirements.txt
 	# spliceai 1.3.1 (latest) uses pkg_resources which was removed from setuptools 71+.
-	# Same patch as pipeline/docker/Dockerfile: fall back to importlib when pkg_resources is missing.
-	SPLICEAI_DIR=$$(python -c "import spliceai, os; print(os.path.dirname(spliceai.__file__))")
-	python3 -c "import pathlib; p = pathlib.Path('$$SPLICEAI_DIR/__init__.py'); src = p.read_text(); src = src.replace('from pkg_resources import get_distribution', 'try:\n    from pkg_resources import get_distribution\nexcept ImportError:\n    from importlib.metadata import distribution as get_distribution'); p.write_text(src)"
-	python3 -c "import pathlib; p = pathlib.Path('$$SPLICEAI_DIR/utils.py'); src = p.read_text(); src = src.replace('from pkg_resources import resource_filename', 'try:\n    from pkg_resources import resource_filename\nexcept ImportError:\n    import importlib.resources\n    def resource_filename(package, resource):\n        return str(importlib.resources.files(package).joinpath(resource))'); p.write_text(src)"
+	# Same patch as pipeline/docker/Dockerfile: fall back to importlib when pkg_resources
+	# is missing. find_spec (not import) locates the package without executing its
+	# pkg_resources-dependent __init__.py, so this works whether or not the venv already
+	# has pkg_resources; the ^-anchored regex only matches the original unindented import
+	# line, so re-running this on an already-patched file is a no-op instead of corrupting it.
+	SPLICEAI_DIR=$$(python -c "import importlib.util, os; print(os.path.dirname(importlib.util.find_spec('spliceai').origin))")
+	python3 -c "import pathlib, re; p = pathlib.Path('$$SPLICEAI_DIR/__init__.py'); src = p.read_text(); src = re.sub(r'^from pkg_resources import get_distribution', 'try:\n    from pkg_resources import get_distribution\nexcept ImportError:\n    from importlib.metadata import distribution as get_distribution', src, count=1, flags=re.MULTILINE); p.write_text(src)"
+	python3 -c "import pathlib, re; p = pathlib.Path('$$SPLICEAI_DIR/utils.py'); src = p.read_text(); src = re.sub(r'^from pkg_resources import resource_filename', 'try:\n    from pkg_resources import resource_filename\nexcept ImportError:\n    import importlib.resources\n    def resource_filename(package, resource):\n        return str(importlib.resources.files(package).joinpath(resource))', src, count=1, flags=re.MULTILINE); p.write_text(src)"
 	PATH=$(LOG_DIR)/tmp/luigi_venv/bin:$(HOME)/bin:$(PATH) \
 	$(LOCAL_PIPELINE_ENV) \
 	python -m luigi --module $(VCF_ANALYSIS_MODULE) $(VCF_ANALYSIS_ROOT_TASK) \
@@ -223,8 +263,11 @@ test-coverage: ## Running pipeline unit tests with coverage information locally 
 build-release: ## create new data release; output logged to BUILD_RELEASE_LOG, not the console (run-pipeline's Luigi output still goes to its own PIPELINE_LOG)
 	mkdir -p $(dir $(BUILD_RELEASE_LOG))
 	@echo "Build-release log: $(BUILD_RELEASE_LOG)"
-	$(MAKE) PIPELINE_LOG=$(PIPELINE_LOG) checkout setup-files download-resources download-seqrepo start-local-uta start-seqrepo-rest-service start-vep-server run-pipeline variants-by-source > $(BUILD_RELEASE_LOG) 2>&1
+	$(MAKE) PIPELINE_LOG=$(PIPELINE_LOG) checkout setup-files download-resources download-seqrepo start-local-uta start-seqrepo-rest-service start-vep-server run-pipeline > $(BUILD_RELEASE_LOG) 2>&1
 
+# TODO: variants-by-source reads built_with_change_types.tsv, which only the old
+# CompileVCFFiles workflow writes; workflow.variant_analysis doesn't produce it yet.
+# Kept out of build-release until it's ported to the new schema pipeline.
 variants-by-source: ## postprocessing: compute statistics for changes with respect to the last release
 	PYTHONPATH=$(PYTHONPATH_PIPELINE) python $(PYTHONPATH_PIPELINE)/utilities/variantsBySource.py -i $(VCF_ASSEMBLY_OUT_DIR)/output/release/built_with_change_types.tsv -c true
 
