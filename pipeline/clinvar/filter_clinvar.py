@@ -7,12 +7,12 @@ import re
 import xml.etree.ElementTree as ET
 
 def contains_target_gene_symbol(variationArchiveElement,
-                                target_symbol_values, debug=True):
+                                target_symbol_values, debug=False):
     root = ET.fromstring(variationArchiveElement)
     if debug:
         print("testing", root.get("VariationName"))
     geneList = root.find(".//GeneList")
-    if geneList:
+    if geneList is not None:
         for geneElement in geneList.iter("Gene"):
             if "Symbol" in geneElement.attrib:
                 if geneElement.attrib["Symbol"] in target_symbol_values:
@@ -27,7 +27,7 @@ def contains_target_gene_symbol(variationArchiveElement,
 
     
 def filter_xml_for_gene_symbol(input_fp, output_fp, target_symbol_values,
-                               chunk_size=1024):
+                               chunk_size=1024, debug=False):
     in_variation_archive = False
     in_header = True
     for line in input_fp:
@@ -44,7 +44,7 @@ def filter_xml_for_gene_symbol(input_fp, output_fp, target_symbol_values,
             xml_string = variation_archive.getvalue()
             variation_archive.close()
             if contains_target_gene_symbol(xml_string,
-                                           target_symbol_values, debug=True):
+                                           target_symbol_values, debug=debug):
                 output_fp.write(xml_string)
 
 
@@ -64,7 +64,8 @@ def main():
     else:
         input_fp = open(args.input, 'r')
     output_fp = open(args.output, 'w')
-    filter_xml_for_gene_symbol(input_fp, output_fp, args.gene)
+    filter_xml_for_gene_symbol(input_fp, output_fp, args.gene,
+                               debug=args.debug)
     output_fp.write("</ClinVarVariationRelease>")
 
 if __name__ == "__main__":
