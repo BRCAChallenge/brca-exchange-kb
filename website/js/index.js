@@ -180,12 +180,21 @@ class HomeRaw extends React.Component {
             <Grid id="main-grid" className='home'>
                 <Row>
                     <Col sm={{ span: 8, offset: 2 }}>
-			<h2 style={{fontWeight: 'bold'}}>
+			<h1 style={{fontWeight: 'bold'}}>
                             Search for your BRCA variant of interest:
-                        </h2>
+                        </h1>
                        <VariantSearch
                            id='home-search'
                            onSearch={this.onSearch}/>
+                       <div className="home-example-searches mt-2">
+                           Examples:{' '}
+                           {['BRCA1', 'c.1105G>A', 'p.Asp369Asn'].map((term, i) => (
+                               <React.Fragment key={term}>
+                                   {i > 0 && ', '}
+                                   <Link to={`/variants?search=${encodeURIComponent(term)}`}>{term}</Link>
+                               </React.Fragment>
+                           ))}
+                       </div>
                     </Col>
                 </Row>
 		<Row>

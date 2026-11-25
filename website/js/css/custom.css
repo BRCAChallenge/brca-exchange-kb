@@ -391,7 +391,12 @@ i.gnomad-header-row {
 
 .home .search-box {
     padding-top: 20px;
-    padding-bottom: 80px;
+}
+
+/* example search links sit just under the home search bar;
+   the large gap that used to be below the search box now goes here */
+.home .home-example-searches {
+    margin-bottom: 80px;
 }
 
 /* change input width to a percentage of its container
