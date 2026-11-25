@@ -26,41 +26,8 @@ export default class SourceReportsTile extends React.Component {
     }
 
     defaultReportExpansions() {
-        // keep track of how many non-enigma/bic entries we've seen
-	// (not a great solution b/c it introduces side effects into the map() below...)
-        let nonEnigmaBics = 0;
-
-        // temp because we may need to re-sort it
-        let submissions = this.props.submissions;
-
-        // sort the submissions if this source specifies a sort function
-        if (this.props.reportBinding.sortBy) {
-	    // (side note: we concat() to clone before sort()ing, because sort() mutates the array)
-            submissions = submissions.concat().sort(this.props.reportBinding.sortBy);
-        }
-
-        return submissions.map((submissionData) => {
-            const submitterName = util.getFormattedFieldByProp(this.props.reportBinding.submitter.prop, submissionData);
-
-            const isEnigmaOrBic = (
-                typeof submitterName === "string" &&
-                (
-                    submitterName.toLowerCase().indexOf("enigma") !== -1 ||
-                    submitterName.toLowerCase().indexOf("(bic)") !== -1
-                )
-            );
-
-            if (!isEnigmaOrBic) {
-		// we only really care about the first, but this is the cleanest way to do this
-		// with a single var
-                nonEnigmaBics += 1;
-            }
-
-            // always collapse ENIGMA and BIC submissions.
-            // show all items expanded if there are only a few of them.
-            // otherwise, expand the first non-enigma/bic elem by default, but nothing else.
-            return (!isEnigmaOrBic) && (this.props.submissions.length <= 3 || nonEnigmaBics === 1);
-        });
+	// all submitter reports start collapsed
+        return this.props.submissions.map(() => false);
     }
 
     setAllReportExpansion(e, newExpansion) {
