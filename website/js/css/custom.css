@@ -1399,6 +1399,16 @@ div.variant-submitter-group .submitter-header td {
     flex: none;
 }
 
+/* ClinVar: tighter header - label sizes to its content, and less padding
+   between the (stars + name) line and the (significance + date) line */
+.clinvar-submitter .submitter-header .submitter-cell {
+    padding: 4px 10px;
+}
+.clinvar-submitter .submitter-header .submitter-cell.submitter-label {
+    text-align: left;
+    flex: none;
+}
+
 .allele-frequency-header td {
     border-bottom-width: 3px;
 }
